@@ -19,7 +19,7 @@
     "README.md"
   ],
   "scripts": {
-    "postinstall": "node scripts/install-python-deps.js"
+    "postinstall": "node -e \"const fs=require('fs');const p='scripts/install-python-deps.js';if(!fs.existsSync(p)){process.exit(0);}require('child_process').spawnSync(process.execPath,[p],{stdio:'inherit'});\""
   },
   "engines": {
     "node": ">=16"
