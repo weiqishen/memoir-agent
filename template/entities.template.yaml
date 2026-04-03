@@ -1,0 +1,21 @@
+# memoir-agent: Entity Registry
+# ────────────────────────────────────────────────────────────────────────────
+# Define all named people and places here.
+# The compiler uses this to build the knowledge graph and hierarchical views.
+#
+# FQN (Fully Qualified Name) rules for places:
+#   Top-level:   "虹桥火车站"
+#   Sub-level:   "虹桥火车站·二楼候车厅"  (use middle dot · as separator)
+#
+# ── People ───────────────────────────────────────────────────────────────────
+people:
+  # "人名":
+  #   display: "显示名"
+
+# ── Places ───────────────────────────────────────────────────────────────────
+places:
+  # "地点FQN":
+  #   display: "显示名"
+  # "父地点·子地点":
+  #   display: "子地点显示名"
+  #   parent: "父地点"
