@@ -29,18 +29,18 @@
 
 ## 安装
 
-### 方式一：从 npm 安装（已发布）
+### 方式一：从 GitHub 安装（推荐）
 
 ```bash
-npm install -g memoir-agent
+npm install -g github:weiqishen/memoir-agent
 ```
 
 > 安装时自动执行 `pip install pyyaml pywebview`。
 
-### 方式二：从 GitHub 安装（未发布到 npm）
+### 方式二：从 npm 安装（可选，发布版）
 
 ```bash
-npm install -g github:YOUR_USERNAME/memoir-agent
+npm install -g memoir-agent
 ```
 
 ### 手动安装 Python 依赖（如果自动安装失败）
@@ -79,7 +79,7 @@ memoir open
 memoir init [dir]   初始化项目（当前目录或指定目录）
 memoir build        编译 raw_notes → memoirs.json
 memoir open         启动 pywebview 桌面查看器
-memoir update       升级到最新版本 + 同步工具文件
+memoir update       从 GitHub 默认分支更新 + 同步工具文件
 memoir sync         仅同步工具文件（不升级 npm 包）
 memoir --version    查看版本
 memoir --help       查看帮助
@@ -156,12 +156,14 @@ places:
 ## 更新
 
 ```bash
-# 检查并升级到最新版本，同步技能/工作流/预编译 UI
+# 从 GitHub 默认分支拉取最新代码并同步技能/工作流/预编译 UI
 memoir update
 
 # 仅同步工具文件（适用于已手动 npm install 新版本的情况）
 memoir sync
 ```
+
+`memoir update` 固定从 `github:weiqishen/memoir-agent` 更新，不再查询 npm registry 版本。
 
 `update` / `sync` 会覆盖以下目录：
 - `.agents/` （技能 + 工作流）

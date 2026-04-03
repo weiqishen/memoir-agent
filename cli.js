@@ -17,6 +17,7 @@ const path = require('path');
 const os   = require('os');
 
 const PKG = require('./package.json');
+const GITHUB_INSTALL_SPEC = 'github:weiqishen/memoir-agent';
 
 // ── ANSI ────────────────────────────────────────────────────────────────────
 const G = '\x1b[32m', Y = '\x1b[33m', R = '\x1b[31m';
@@ -228,33 +229,25 @@ function cmdOpen() {
 
 /**
  * memoir update
- * 1. Checks npm registry for a newer version
- * 2. Installs it globally via npm
- * 3. Syncs tooling files from the new installation into the current project
+ * 1. Installs latest code from the GitHub default branch globally
+ * 2. Syncs tooling files from the new installation into the current project
  *    (safe: never touches entities.yaml or periods/)
  */
 function cmdUpdate() {
-  info('Checking npm registry for updates...');
-  const check = spawnSync('npm', ['view', 'memoir-agent', 'version'], { stdio: 'pipe' });
-  if (check.status !== 0) {
-    warn('Could not reach npm registry. Check your connection.');
-    return;
-  }
-  const latest = check.stdout.toString().trim();
-
-  if (latest === PKG.version) {
-    ok(`memoir-agent is already at the latest version (v${PKG.version}).`);
-    return;
-  }
-
-  info(`Upgrading  v${PKG.version}  →  v${latest}...`);
-  const install = spawnSync('npm', ['install', '-g', `memoir-agent@${latest}`],
+  info('Updating memoir-agent from GitHub default branch...');
+  info(`Installing ${GITHUB_INSTALL_SPEC} globally...`);
+  const install = spawnSync('npm', ['install', '-g', GITHUB_INSTALL_SPEC],
     { stdio: 'inherit' });
-  if (install.status !== 0) fail('npm install failed.');
-  ok(`Package updated to v${latest}.`);
+  if (install.status !== 0) fail(`npm install failed for ${GITHUB_INSTALL_SPEC}.`);
+  ok('Package updated from GitHub.');
 
-  // After npm updates globally, locate the new package's template dir
+  // After npm updates globally, locate the new package's template dir.
   const globalRoot = spawnSync('npm', ['root', '-g'], { stdio: 'pipe' });
+  if (globalRoot.status !== 0) {
+    warn('Could not locate global npm root — skipping file sync.');
+    warn('Run manually: memoir sync');
+    return;
+  }
   const newTemplate = path.join(globalRoot.stdout.toString().trim(), 'memoir-agent', 'template');
 
   if (!fs.existsSync(newTemplate)) {
@@ -264,7 +257,7 @@ function cmdUpdate() {
   }
 
   syncTooling(newTemplate, process.cwd());
-  ok(`Tooling files synced to v${latest}.`);
+  ok('Tooling files synced from latest GitHub package.');
   info('Run  memoir build  to rebuild with the new compiler.');
 }
 
@@ -297,7 +290,7 @@ ${B}Commands:${RST}
   ${G}init${RST} [dir]   Scaffold memoir system in current or specified directory
   ${G}build${RST}        Compile raw_notes → memoirs.json  (run after /recall)
   ${G}open${RST}         Launch pywebview desktop viewer
-  ${G}update${RST}       Upgrade to latest version + sync tooling files
+  ${G}update${RST}       Upgrade from GitHub repo + sync tooling files
   ${G}sync${RST}         Sync tooling files from current package (no npm upgrade)
 
 ${B}Options:${RST}
@@ -309,7 +302,7 @@ ${B}Examples:${RST}
   memoir init ~/my-memoirs    # initialize in a specific path
   memoir build
   memoir open
-  memoir update               # check npm + upgrade + sync tooling
+  memoir update               # pull from GitHub default branch + sync tooling
   memoir sync                 # sync tooling files only
 
 ${D}Python dependencies (auto-installed on npm install):${RST}

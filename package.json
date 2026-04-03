@@ -3,6 +3,10 @@
   "version": "0.1.0",
   "description": "AI-powered personal memoir archival system — Claude Code skill + pywebview desktop viewer",
   "keywords": ["memoir", "claude-code", "biographer", "ai", "pywebview", "agent"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/weiqishen/memoir-agent.git"
+  },
   "license": "MIT",
   "bin": {
     "memoir": "./cli.js"
