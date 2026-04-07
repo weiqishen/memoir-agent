@@ -17,7 +17,7 @@ const path = require('path');
 const os   = require('os');
 
 const PKG = require('./package.json');
-const GITHUB_INSTALL_SPEC = 'github:weiqishen/memoir-agent';
+const { getGithubUpdateInstallSpec } = require('./lib/update-source');
 
 // ── ANSI ────────────────────────────────────────────────────────────────────
 const G = '\x1b[32m', Y = '\x1b[33m', R = '\x1b[31m';
@@ -234,11 +234,12 @@ function cmdOpen() {
  *    (safe: never touches entities.yaml or periods/)
  */
 function cmdUpdate() {
+  const installSpec = getGithubUpdateInstallSpec();
   info('Updating memoir-agent from GitHub default branch...');
-  info(`Installing ${GITHUB_INSTALL_SPEC} globally...`);
-  const install = spawnSync('npm', ['install', '-g', GITHUB_INSTALL_SPEC],
+  info(`Installing ${installSpec} globally...`);
+  const install = spawnSync('npm', ['install', '-g', installSpec],
     { stdio: 'inherit' });
-  if (install.status !== 0) fail(`npm install failed for ${GITHUB_INSTALL_SPEC}.`);
+  if (install.status !== 0) fail(`npm install failed for ${installSpec}.`);
   ok('Package updated from GitHub.');
 
   // After npm updates globally, locate the new package's template dir.
