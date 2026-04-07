@@ -3,4 +3,4 @@ memoirs/periods/
 memoirs/.draft_buffer.md
 memoirs/webapp/public/memoirs.json
 memoirs/webapp/dist/memoirs.json
-entities.yaml
+memoirs/entities.yaml

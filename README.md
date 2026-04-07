@@ -32,7 +32,7 @@
 ### 方式一：从 GitHub 安装（推荐）
 
 ```bash
-npm install -g github:weiqishen/memoir-agent
+npm install -g https://codeload.github.com/weiqishen/memoir-agent/tar.gz/refs/heads/main
 ```
 
 > 安装时自动执行 `pip install pyyaml pywebview`。
@@ -58,7 +58,7 @@ pip install pyyaml pywebview
 mkdir my-memoirs && cd my-memoirs
 memoir init
 
-# 2. 编辑 entities.yaml，注册你的人物和地点
+# 2. 编辑 memoirs/entities.yaml，注册你的人物和地点
 #    （格式见文件内的注释）
 
 # 3. 打开 Claude Code，使用 /recall 归档第一条记忆
@@ -121,17 +121,17 @@ my-memoirs/
 │   └── webapp/
 │       ├── src/                      # React 前端源码
 │       └── dist/                     # 预编译静态文件（查看器直接使用）
-├── entities.yaml                     # 【个人数据】人物 & 地点注册表
+│   ├── entities.yaml                 # 【个人数据】人物 & 地点注册表
 ├── open_memoirs.pyw                  # 桌面查看器启动脚本
-└── .gitignore                        # 已排除 periods/ 和 entities.yaml
+└── .gitignore                        # 已排除 periods/ 和 memoirs/entities.yaml
 ```
 
-> **重要**：`memoirs/periods/` 和 `entities.yaml` 包含个人数据，
+> **重要**：`memoirs/periods/` 和 `memoirs/entities.yaml` 包含个人数据，
 > 已在 `.gitignore` 中排除，**请勿提交到公开仓库**。
 
 ---
 
-## entities.yaml 配置
+## memoirs/entities.yaml 配置
 
 ```yaml
 people:
@@ -163,14 +163,14 @@ memoir update
 memoir sync
 ```
 
-`memoir update` 固定从 `github:weiqishen/memoir-agent` 更新，不再查询 npm registry 版本。
+`memoir update` 固定从 GitHub tarball 更新，不再查询 npm registry 版本。
 
 `update` / `sync` 会覆盖以下目录：
 - `.agents/` （技能 + 工作流）
 - `memoirs/webapp/src/`（前端源码）
 - `memoirs/webapp/dist/`（预编译文件，**跳过** `memoirs.json`）
 
-**绝不覆盖**：`entities.yaml` · `memoirs/periods/` · `.gitignore`
+**绝不覆盖**：`memoirs/entities.yaml` · `memoirs/periods/` · `.gitignore`
 
 ---
 

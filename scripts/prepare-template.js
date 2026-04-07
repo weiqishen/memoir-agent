@@ -19,7 +19,7 @@
  *
  * What it does NOT copy:
  *   ../memoirs/periods/  (personal data)
- *   ../entities.yaml     (personal data — replaced with blank template)
+ *   ../memoirs/entities.yaml     (personal data — replaced with blank template)
  *   ../memoirs/webapp/node_modules/
  */
 
@@ -106,7 +106,7 @@ if (fs.existsSync(path.join(ROOT, 'create_shortcut.py'))) {
   copyFile('create_shortcut.py');
 }
 
-// 4. entities.template.yaml — blank template, NOT personal entities.yaml
+// 4. memoirs/entities.template.yaml — blank template, NOT personal memoirs/entities.yaml
 const entityTemplate = `# memoir-agent: Entity Registry
 # ────────────────────────────────────────────────────────────────────────────
 # Define all named people and places here.
@@ -129,8 +129,9 @@ places:
   #   display: "子地点显示名"
   #   parent: "父地点"
 `;
-fs.writeFileSync(path.join(TMPL, 'entities.template.yaml'), entityTemplate);
-ok('entities.template.yaml');
+fs.mkdirSync(path.join(TMPL, 'memoirs'), { recursive: true });
+fs.writeFileSync(path.join(TMPL, 'memoirs', 'entities.template.yaml'), entityTemplate);
+ok('memoirs/entities.template.yaml');
 
 // 5. .gitignore for user projects
 const gitignore = `# memoir-agent — personal data (never commit these)
@@ -138,7 +139,7 @@ memoirs/periods/
 memoirs/.draft_buffer.md
 memoirs/webapp/public/memoirs.json
 memoirs/webapp/dist/memoirs.json
-entities.yaml
+memoirs/entities.yaml
 `;
 fs.writeFileSync(path.join(TMPL, '.gitignore'), gitignore);
 ok('.gitignore');

@@ -13,6 +13,7 @@
   },
   "files": [
     "cli.js",
+    "lib/build-asset-sync.js",
     "lib/npm-runner.js",
     "lib/update-source.js",
     "scripts/install-python-deps.js",

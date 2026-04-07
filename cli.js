@@ -17,6 +17,7 @@ const path = require('path');
 const os   = require('os');
 
 const PKG = require('./package.json');
+const { syncPublicAssetsToDist } = require('./lib/build-asset-sync');
 const { runNpm } = require('./lib/npm-runner');
 const { getGithubUpdateInstallSpec } = require('./lib/update-source');
 
@@ -105,7 +106,7 @@ function copyDirOverwrite(src, dst) {
 /**
  * Sync tooling files from a template dir into the user's project.
  * OVERWRITES: .agents/  memoirs/webapp/src/  memoirs/webapp/dist/
- * SKIPS:      entities.yaml  memoirs/periods/  .gitignore
+ * SKIPS:      memoirs/entities.yaml  memoirs/periods/  .gitignore
  */
 function syncTooling(templateDir, target) {
   info('Syncing .agents/ (skills + workflows)...');
@@ -150,12 +151,13 @@ function cmdInit(args) {
   // Copy skeleton
   copyDir(TEMPLATE, target);
 
-  // Rename entities.template.yaml → entities.yaml if not yet present
-  const tmplEntity = path.join(target, 'entities.template.yaml');
-  const dstEntity  = path.join(target, 'entities.yaml');
+  // Rename memoirs/entities.template.yaml → memoirs/entities.yaml if not yet present
+  const tmplEntity = path.join(target, 'memoirs', 'entities.template.yaml');
+  const dstEntity  = path.join(target, 'memoirs', 'entities.yaml');
   if (fs.existsSync(tmplEntity) && !fs.existsSync(dstEntity)) {
+    fs.mkdirSync(path.dirname(dstEntity), { recursive: true });
     fs.renameSync(tmplEntity, dstEntity);
-    ok('entities.yaml  (created from template)');
+    ok('memoirs/entities.yaml  (created from template)');
   }
 
   // Ensure periods dir
@@ -170,7 +172,7 @@ function cmdInit(args) {
 ${G}${B}✓ Done!${RST}
 
 ${B}Next steps:${RST}
-  1. Edit  ${B}entities.yaml${RST}  — add your people & places
+  1. Edit  ${B}memoirs/entities.yaml${RST}  — add your people & places
   2. Open Claude Code in this directory
   3. Use the ${B}/recall${RST} slash command to archive your first memory
   4. Run  ${B}memoir build${RST}  to compile
@@ -206,6 +208,8 @@ function cmdBuild() {
     fs.copyFileSync(src, dst);
     ok('Synced memoirs.json → dist/');
   }
+  syncPublicAssetsToDist(process.cwd());
+  ok('Synced public/assets → dist/assets/');
   ok('Build complete.');
 }
 
@@ -232,7 +236,7 @@ function cmdOpen() {
  * memoir update
  * 1. Installs latest code from the GitHub default branch globally
  * 2. Syncs tooling files from the new installation into the current project
- *    (safe: never touches entities.yaml or periods/)
+ *    (safe: never touches memoirs/entities.yaml or periods/)
  */
 function cmdUpdate() {
   const installSpec = getGithubUpdateInstallSpec();

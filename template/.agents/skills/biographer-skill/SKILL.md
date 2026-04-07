@@ -60,7 +60,7 @@ memoirs/
 `timeline_manager.py` 会自动在 `periods/` 下创建对应的生命周期目录，无需手动操作。
 推断出英文简写 (如 `Childhood`, `US_PhD`, `FirstJob`) 作为 `--period` 参数即可。
 
-## entities.yaml 格式速查
+## memoirs/entities.yaml 格式速查
 
 ```yaml
 people:
