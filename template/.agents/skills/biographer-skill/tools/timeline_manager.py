@@ -4,12 +4,55 @@ import argparse
 import datetime
 import shutil
 import re
+import mimetypes
+from urllib.parse import urlparse
+from urllib.request import urlopen
 
 # Base path derivation
 CURRENT_DIR   = os.path.dirname(os.path.abspath(__file__))
 WORKSPACE_DIR = os.path.abspath(os.path.join(CURRENT_DIR, "../../../../"))
 MEMOIRS_DIR   = os.path.join(WORKSPACE_DIR, "memoirs")
 PERIODS_DIR   = os.path.join(MEMOIRS_DIR, "periods")  # all period folders live here
+
+
+def build_asset_filename(date, source, headers=None):
+    """Build a stable asset filename from a local path or remote URL."""
+    parsed = urlparse(source)
+    source_name = os.path.basename(parsed.path if parsed.scheme else source)
+    if not source_name:
+        source_name = "asset"
+
+    stem, ext = os.path.splitext(source_name)
+    if not ext and headers is not None:
+        content_type = headers.get_content_type()
+        guessed_ext = mimetypes.guess_extension(content_type)
+        if guessed_ext:
+            ext = guessed_ext
+
+    if not ext:
+        ext = ".bin"
+
+    return f"{date}_{stem or 'asset'}{ext}"
+
+
+def copy_markdown_asset(filepath, date, assets_dir):
+    """Copy or download a Markdown asset and return the rewritten relative path."""
+    if os.path.isabs(filepath) and os.path.exists(filepath):
+        filename = build_asset_filename(date, filepath)
+        dest_path = os.path.join(assets_dir, filename)
+        shutil.copy2(filepath, dest_path)
+        return f"../assets/{filename}"
+
+    parsed = urlparse(filepath)
+    if parsed.scheme in {"http", "https"}:
+        with urlopen(filepath, timeout=15) as response:
+            filename = build_asset_filename(date, filepath, response.headers)
+            dest_path = os.path.join(assets_dir, filename)
+            with open(dest_path, "wb") as asset_file:
+                shutil.copyfileobj(response, asset_file)
+        return f"../assets/{filename}"
+
+    return None
 
 def safe_append_to_timeline(period, date, event, summary, file_slug):
     period_dir = os.path.join(PERIODS_DIR, period)
@@ -51,16 +94,14 @@ def generate_raw_note(period, file_slug, date, people, places, context_text, con
     
     def replacer(match):
         alt_text = match.group(1)
-        filepath = match.group(2)
-        if os.path.isabs(filepath) and os.path.exists(filepath):
-            filename = os.path.basename(filepath)
-            new_filename = f"{date}_{filename}"
-            dest_path = os.path.join(assets_dir, new_filename)
-            try:
-                shutil.copy2(filepath, dest_path)
-                return f"![{alt_text}](../assets/{new_filename})"
-            except Exception as e:
-                print(f"Warning: Failed to copy {filepath}: {e}")
+        filepath = match.group(2).strip()
+        try:
+            rewritten_path = copy_markdown_asset(filepath, date, assets_dir)
+            if rewritten_path:
+                return f"![{alt_text}]({rewritten_path})"
+        except Exception as e:
+            # Keep the original Markdown reference when archival fails.
+            print(f"Warning: Failed to archive asset {filepath}: {e}")
         return match.group(0)
         
     if raw_input:
