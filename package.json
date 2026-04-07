@@ -13,6 +13,7 @@
   },
   "files": [
     "cli.js",
+    "lib/npm-runner.js",
     "lib/update-source.js",
     "scripts/install-python-deps.js",
     "requirements.txt",

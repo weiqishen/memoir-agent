@@ -17,6 +17,7 @@ const path = require('path');
 const os   = require('os');
 
 const PKG = require('./package.json');
+const { runNpm } = require('./lib/npm-runner');
 const { getGithubUpdateInstallSpec } = require('./lib/update-source');
 
 // ── ANSI ────────────────────────────────────────────────────────────────────
@@ -237,13 +238,13 @@ function cmdUpdate() {
   const installSpec = getGithubUpdateInstallSpec();
   info('Updating memoir-agent from GitHub default branch...');
   info(`Installing ${installSpec} globally...`);
-  const install = spawnSync('npm', ['install', '-g', installSpec],
+  const install = runNpm(['install', '-g', installSpec],
     { stdio: 'inherit' });
   if (install.status !== 0) fail(`npm install failed for ${installSpec}.`);
   ok('Package updated from GitHub.');
 
   // After npm updates globally, locate the new package's template dir.
-  const globalRoot = spawnSync('npm', ['root', '-g'], { stdio: 'pipe' });
+  const globalRoot = runNpm(['root', '-g'], { stdio: 'pipe' });
   if (globalRoot.status !== 0) {
     warn('Could not locate global npm root — skipping file sync.');
     warn('Run manually: memoir sync');
