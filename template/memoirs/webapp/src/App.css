@@ -413,11 +413,24 @@ body {
   font-size: 21px;
 }
 
+.markdown-prose figure {
+  margin: 2.5em 0;
+}
+
 .markdown-prose img {
   max-width: 100%;
   height: auto;
-  margin: 2.5em 0;
   display: block;
+  margin: 0;
+}
+
+.markdown-prose figcaption {
+  margin-top: 0.85em;
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  text-align: center;
 }
 
 .tag-hub {
@@ -541,5 +554,4 @@ body {
 }
 
 .main-content { flex: 1; }
-
 

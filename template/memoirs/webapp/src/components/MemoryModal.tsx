@@ -1,8 +1,8 @@
 import { useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, FileText } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
 import { ErrorBoundary } from './ErrorBoundary';
+import { ReactMarkdown, chapterMarkdownComponents } from './ChapterMarkdown';
 import type { SelectedItem, GraphLink, GraphNode } from '../types';
 import type { Translations } from '../i18n';
 
@@ -65,7 +65,9 @@ export function MemoryModal({ item, onClose, onSelectEvent, getChapterContent, g
                 {getChapterContent(item.period, item.entry.date) ? (
                   <ErrorBoundary>
                     <div className="markdown-prose">
-                      <ReactMarkdown>{getChapterContent(item.period, item.entry.date)!}</ReactMarkdown>
+                      <ReactMarkdown components={chapterMarkdownComponents}>
+                        {getChapterContent(item.period, item.entry.date)!}
+                      </ReactMarkdown>
                     </div>
                   </ErrorBoundary>
                 ) : (
