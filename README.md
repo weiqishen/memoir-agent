@@ -77,7 +77,7 @@ memoir open
 
 ```
 memoir init [dir]   初始化项目（当前目录或指定目录）
-memoir build        编译 raw_notes → memoirs.json
+memoir build        编译 raw_notes → memoirs.manifest.json + chapters
 memoir open         启动 pywebview 桌面查看器
 memoir update       从 GitHub 默认分支更新 + 同步工具文件
 memoir sync         仅同步工具文件（不升级 npm 包）
@@ -98,7 +98,7 @@ memoir --help       查看帮助
 | `/commit` | 结束倾听，将草稿区内容一次性归档 |
 | `/memoir-build` | 合成指定阶段的回忆录章节（散文体） |
 | `/memoir-correct` | 纠正历史错误的笔记或章节（无痕覆盖） |
-| `/build` | 编译 memoirs.json 并同步到查看器 |
+| `/build` | 编译 memoirs.manifest.json + chapters 并同步到查看器 |
 
 ---
 
@@ -168,7 +168,7 @@ memoir sync
 `update` / `sync` 会覆盖以下目录：
 - `.agents/` （技能 + 工作流）
 - `memoirs/webapp/src/`（前端源码）
-- `memoirs/webapp/dist/`（预编译文件，**跳过** `memoirs.json`）
+- `memoirs/webapp/dist/`（预编译文件，**跳过** `memoirs.manifest.json` 和 `chapters/`）
 
 **绝不覆盖**：`memoirs/entities.yaml` · `memoirs/periods/` · `.gitignore`
 

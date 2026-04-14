@@ -113,6 +113,47 @@ class BuildMemoirApiTests(unittest.TestCase):
             self.assertEqual(parsed["places"]["null·yes"]["display"], "yes")
             self.assertEqual(parsed["places"]["null·yes"]["parent"], "null")
 
+    def test_build_api_resolves_child_place_alias_case_insensitively_without_duplicate_place(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            memoirs_dir, periods_dir, raw_notes_dir, public_dir = self.configure_workspace(root)
+
+            (memoirs_dir / "entities.yaml").write_text(textwrap.dedent("""\
+                people: {}
+                places:
+                  佛罗里达大学:
+                    aliases: []
+                  佛罗里达大学·通勤停车场:
+                    display: 通勤停车场
+                    parent: 佛罗里达大学
+                    aliases:
+                      - commuter lot
+            """), encoding="utf-8")
+
+            self.write_fixture(
+                periods_dir,
+                raw_notes_dir,
+                textwrap.dedent("""\
+                    ---
+                    date: "2024-08-15"
+                    people: []
+                    places: ["佛罗里达大学·Commuter lot"]
+                    ---
+                    body
+                """),
+            )
+
+            build_memoir_api.build_api()
+
+            registry = yaml.safe_load((memoirs_dir / "entities.yaml").read_text(encoding="utf-8"))
+            manifest = yaml.safe_load((public_dir / "memoirs.manifest.json").read_text(encoding="utf-8"))
+            places_index = manifest["places_index"]
+
+            self.assertIn("佛罗里达大学·通勤停车场", registry["places"])
+            self.assertNotIn("佛罗里达大学·Commuter lot", registry["places"])
+            self.assertIn("佛罗里达大学·通勤停车场", places_index)
+            self.assertNotIn("佛罗里达大学·Commuter lot", places_index)
+
     def test_build_api_rewrites_chapter_asset_paths_and_copies_files_to_public_assets(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
@@ -145,13 +186,15 @@ class BuildMemoirApiTests(unittest.TestCase):
 
             build_memoir_api.build_api()
 
-            memoirs_json = yaml.safe_load((public_dir / "memoirs.json").read_text(encoding="utf-8"))
-            chapter = memoirs_json["memoirs"]["US_PhD"]["chapters"][0]
+            manifest = yaml.safe_load((public_dir / "memoirs.manifest.json").read_text(encoding="utf-8"))
+            chapter = manifest["memoirs"]["US_PhD"]["chapters"][0]
+            chapter_markdown = (public_dir / "chapters" / "US_PhD" / "2024-09-lexington.md").read_text(encoding="utf-8")
 
             copied_asset = public_dir / "assets" / "US_PhD" / "banner.jpg"
             self.assertTrue(copied_asset.exists())
             self.assertEqual(copied_asset.read_bytes(), b"chapter-image")
-            self.assertIn("![Bird view](/assets/US_PhD/banner.jpg)", chapter["content"])
+            self.assertEqual(chapter["path"], "/chapters/US_PhD/2024-09-lexington.md")
+            self.assertIn("![Bird view](/assets/US_PhD/banner.jpg)", chapter_markdown)
 
 
 if __name__ == "__main__":

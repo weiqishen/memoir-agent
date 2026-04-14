@@ -1,5 +1,5 @@
 ---
-description: 将最新的原始笔记和章节编译成网页可读的 memoirs.json，并同步到 dist 目录，供 open_memoirs.pyw 浏览。
+description: 将最新的原始笔记和章节编译成网页可读的 manifest + markdown，并同步到 dist 目录，供 open_memoirs.pyw 浏览。
 ---
 
 # 数据构建 (Build Workflow)
@@ -9,16 +9,18 @@ description: 将最新的原始笔记和章节编译成网页可读的 memoirs.j
 ## 执行步骤：
 
 // turbo
-1. **运行 API 编译脚本**，将 `raw_notes`、`chapters`、`timeline.yaml` 整合为 `memoirs.json`：
+1. **运行 API 编译脚本**，将 `raw_notes`、`chapters`、`timeline.yaml` 整合为 `memoirs.manifest.json`，并发布章节 markdown 到 `public/chapters/`：
    ```
    python .agents/skills/biographer-skill/tools/build_memoir_api.py
    ```
-   输出位置：`memoirs/webapp/public/memoirs.json`
+   输出位置：`memoirs/webapp/public/memoirs.manifest.json`
 
 // turbo
 2. **同步到 dist 目录**（供 `open_memoirs.pyw` 读取，无需完整重新构建前端）：
    ```
-   copy memoirs\webapp\public\memoirs.json memoirs\webapp\dist\memoirs.json
+   copy memoirs\webapp\public\memoirs.manifest.json memoirs\webapp\dist\memoirs.manifest.json
+   xcopy /E /I /Y memoirs\webapp\public\chapters memoirs\webapp\dist\chapters
+   xcopy /E /I /Y memoirs\webapp\public\assets memoirs\webapp\dist\assets
    ```
    > 注：若 `dist/` 目录不存在，需先执行步骤 3。
 

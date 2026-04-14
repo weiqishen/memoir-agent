@@ -14,13 +14,12 @@ export interface Timeline {
 
 export interface Chapter {
   filename: string;
-  content: string;
+  path: string;
 }
 
 export interface MemoirData {
   timeline: Timeline;
   chapters: Chapter[];
-  raw_notes: Record<string, string>;
 }
 
 export interface GraphNode {

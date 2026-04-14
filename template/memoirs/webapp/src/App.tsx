@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Sun, Moon, Search, Calendar, Users } from 'lucide-react';
 
@@ -37,6 +37,7 @@ export default function App() {
   const [searchOpen,   setSearchOpen]   = useState(false);
   const [searchQuery,  setSearchQuery]  = useState('');
   const [isMaximized,  setIsMaximized]  = useState(false);
+  const chapterCacheRef = useRef<Map<string, string>>(new Map());
 
   const isDesktop = typeof (window as any).pywebview !== 'undefined';
   const t = TRANSLATIONS[lang];
@@ -62,7 +63,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    fetch('/memoirs.json')
+    fetch('/memoirs.manifest.json')
       .then(r => r.json())
       .then((res: any) => {
         setData({
@@ -77,11 +78,30 @@ export default function App() {
   }, []);
 
   // ── Derived data ───────────────────────────────────────────────────────────
-  const getChapterContent = useCallback((period: string, date: string): string | null => {
+  const getChapterPath = useCallback((period: string, date: string): string | null => {
     if (!data) return null;
     const chapter = data.memoirs[period]?.chapters?.find(ch => ch.filename.startsWith(date));
-    return chapter?.content ?? null;
+    return chapter?.path ?? null;
   }, [data]);
+
+  const loadChapterContent = useCallback(async (period: string, date: string): Promise<string | null> => {
+    const chapterPath = getChapterPath(period, date);
+    if (!chapterPath) return null;
+
+    const cached = chapterCacheRef.current.get(chapterPath);
+    if (cached !== undefined) return cached;
+
+    try {
+      const response = await fetch(chapterPath);
+      if (!response.ok) return null;
+      const markdown = await response.text();
+      chapterCacheRef.current.set(chapterPath, markdown);
+      return markdown;
+    } catch (error) {
+      console.error('Could not load chapter markdown', error);
+      return null;
+    }
+  }, [getChapterPath]);
 
   const allEntries = useMemo(() => data
     ? Object.entries(data.memoirs).flatMap(([periodKey, pd]) =>
@@ -92,12 +112,11 @@ export default function App() {
   const yearIndex = useMemo(() => data ? groupByYear(data.memoirs) : {}, [data]);
 
   const searchResults = searchQuery.trim()
-    ? allEntries.filter(({ periodKey, entry }) => {
+    ? allEntries.filter(({ entry }) => {
         const q = searchQuery.toLowerCase();
         return (
           entry.event?.toLowerCase().includes(q)   ||
-          entry.summary?.toLowerCase().includes(q) ||
-          getChapterContent(periodKey, entry.date)?.toLowerCase().includes(q)
+          entry.summary?.toLowerCase().includes(q)
         );
       })
     : [];
@@ -237,7 +256,7 @@ export default function App() {
         item={selectedItem}
         onClose={() => setSelectedItem(null)}
         onSelectEvent={setSelectedItem}
-        getChapterContent={getChapterContent}
+        loadChapterContent={loadChapterContent}
         graphLinks={data.graph.links}
         graphNodes={data.graph.nodes}
         t={t}

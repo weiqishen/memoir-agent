@@ -1,4 +1,4 @@
-import { useRef, useCallback } from 'react';
+import { useRef, useCallback, useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, FileText } from 'lucide-react';
 import { ErrorBoundary } from './ErrorBoundary';
@@ -10,7 +10,7 @@ interface Props {
   item: SelectedItem | null;
   onClose: () => void;
   onSelectEvent: (item: SelectedItem) => void;
-  getChapterContent: (period: string, date: string) => string | null;
+  loadChapterContent: (period: string, date: string) => Promise<string | null>;
   graphLinks: GraphLink[];
   graphNodes: GraphNode[];
   t: Translations;
@@ -28,12 +28,43 @@ const cardVariants = {
 };
 
 /** Floating modal for reading a memoir chapter or exploring entity (person/place) connections. */
-export function MemoryModal({ item, onClose, onSelectEvent, getChapterContent, graphLinks, graphNodes, t }: Props) {
+export function MemoryModal({ item, onClose, onSelectEvent, loadChapterContent, graphLinks, graphNodes, t }: Props) {
   const overlayRef = useRef<HTMLDivElement>(null);
+  const [chapterContent, setChapterContent] = useState<string | null>(null);
+  const [isChapterLoading, setIsChapterLoading] = useState(false);
 
   const handleOverlayClick = useCallback((e: React.MouseEvent) => {
     if (e.target === overlayRef.current) onClose();
   }, [onClose]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!item || item.type !== 'event') {
+      setChapterContent(null);
+      setIsChapterLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setIsChapterLoading(true);
+    setChapterContent(null);
+
+    loadChapterContent(item.period, item.entry.date)
+      .then(content => {
+        if (cancelled) return;
+        setChapterContent(content);
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setIsChapterLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [item, loadChapterContent]);
 
   return (
     <AnimatePresence>
@@ -62,11 +93,15 @@ export function MemoryModal({ item, onClose, onSelectEvent, getChapterContent, g
 
             {item.type === 'event' ? (
               <article className="chapter-body">
-                {getChapterContent(item.period, item.entry.date) ? (
+                {isChapterLoading ? (
+                  <div className="empty-state">
+                    <p>{t.loading}</p>
+                  </div>
+                ) : chapterContent ? (
                   <ErrorBoundary>
                     <div className="markdown-prose">
                       <ReactMarkdown components={chapterMarkdownComponents}>
-                        {getChapterContent(item.period, item.entry.date)!}
+                        {chapterContent}
                       </ReactMarkdown>
                     </div>
                   </ErrorBoundary>

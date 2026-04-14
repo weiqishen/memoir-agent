@@ -1,6 +1,8 @@
 # memoir-agent — personal data (never commit these)
 memoirs/periods/
 memoirs/.draft_buffer.md
-memoirs/webapp/public/memoirs.json
-memoirs/webapp/dist/memoirs.json
+memoirs/webapp/public/memoirs.manifest.json
+memoirs/webapp/public/chapters/
+memoirs/webapp/dist/memoirs.manifest.json
+memoirs/webapp/dist/chapters/
 memoirs/entities.yaml

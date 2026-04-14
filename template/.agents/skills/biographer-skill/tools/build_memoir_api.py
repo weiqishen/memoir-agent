@@ -14,6 +14,12 @@ MEMOIRS_DIR = os.path.join(WORKSPACE_DIR, "memoirs")
 PERIODS_DIR = os.path.join(MEMOIRS_DIR, "periods")
 WEBAPP_PUBLIC_DIR = os.path.join(MEMOIRS_DIR, "webapp", "public")
 ALIAS_REGISTRY = os.path.join(MEMOIRS_DIR, "entities.yaml")
+MANIFEST_FILENAME = "memoirs.manifest.json"
+
+
+def normalize_entity_key(value: str):
+    """Normalize entity keys for case-insensitive and whitespace-tolerant matching."""
+    return re.sub(r"\s+", " ", str(value).strip()).casefold()
 
 
 def load_entity_registry_document():
@@ -39,21 +45,34 @@ def load_entity_registry_document():
 
 
 def build_registry_maps(reg):
-    """返回 (people_map, places_map, places_meta)
-    people_map / places_map : {alias -> canonical}
-    places_meta : {canonical -> {display?, parent?}}
-    """
+    """Build canonical maps for entities and normalized lookup maps for tolerant matching."""
     people_map: dict[str, str] = {}
     places_map: dict[str, str] = {}
+    people_map_normalized: dict[str, str] = {}
+    places_map_normalized: dict[str, str] = {}
     places_meta: dict[str, dict] = {}
+
     for canonical, meta in reg["people"].items():
         people_map[canonical] = canonical
+        people_map_normalized[normalize_entity_key(canonical)] = canonical
         for alias in (meta or {}).get("aliases", []):
-            people_map[str(alias)] = canonical
+            alias_key = str(alias)
+            people_map[alias_key] = canonical
+            people_map_normalized[normalize_entity_key(alias_key)] = canonical
+
     for canonical, meta in reg["places"].items():
         places_map[canonical] = canonical
+        places_map_normalized[normalize_entity_key(canonical)] = canonical
+        parent_key = canonical.split("·", 1)[0] if "·" in canonical else ""
         for alias in (meta or {}).get("aliases", []):
-            places_map[str(alias)] = canonical
+            alias_key = str(alias)
+            places_map[alias_key] = canonical
+            places_map_normalized[normalize_entity_key(alias_key)] = canonical
+            # Child-place aliases are often stored as local names like "commuter lot".
+            # Also map "parent·alias" so extracted FQN-style aliases resolve correctly.
+            if parent_key and "·" not in alias_key:
+                fq_alias_key = f"{parent_key}·{alias_key}"
+                places_map_normalized[normalize_entity_key(fq_alias_key)] = canonical
         m = meta or {}
         entry: dict = {}
         if "display" in m:
@@ -62,7 +81,7 @@ def build_registry_maps(reg):
             entry["parent"] = m["parent"]
         if entry:
             places_meta[canonical] = entry
-    return people_map, places_map, places_meta
+    return people_map, places_map, people_map_normalized, places_map_normalized, places_meta
 
 
 def parse_frontmatter(content: str):
@@ -113,13 +132,28 @@ def export_chapter_assets(period: str, chapter_dir: str, chapter_content: str):
     return re.sub(r'!\[([^\]]*)\]\(([^)]+)\)', replace_asset, chapter_content)
 
 
+def publish_chapter_markdown(period: str, filename: str, chapter_content: str):
+    """Publish chapter markdown to webapp/public/chapters and return web path."""
+    public_period_dir = os.path.join(WEBAPP_PUBLIC_DIR, "chapters", period)
+    os.makedirs(public_period_dir, exist_ok=True)
+    chapter_output_path = os.path.join(public_period_dir, filename)
+    with open(chapter_output_path, "w", encoding="utf-8") as chapter_file:
+        chapter_file.write(chapter_content)
+    return f"/chapters/{period}/{filename}"
+
+
 def build_api():
     if not os.path.exists(PERIODS_DIR):
         print(f"ERROR: periods dir not found: {PERIODS_DIR}")
         return
 
+    # Rebuild published chapter markdown from scratch to avoid stale files.
+    published_chapters_root = os.path.join(WEBAPP_PUBLIC_DIR, "chapters")
+    if os.path.exists(published_chapters_root):
+        shutil.rmtree(published_chapters_root)
+
     registry_doc = load_entity_registry_document()
-    people_map, places_map, places_meta = build_registry_maps(registry_doc)
+    people_map, places_map, people_map_normalized, places_map_normalized, places_meta = build_registry_maps(registry_doc)
     new_people_added = []
     new_places_added = []
 
@@ -143,8 +177,9 @@ def build_api():
                     chapter_path = os.path.join(ch_dir, ch)
                     with open(chapter_path, "r", encoding="utf-8") as f:
                         chapter_content = export_chapter_assets(period=item, chapter_dir=ch_dir, chapter_content=f.read())
+                        chapter_web_path = publish_chapter_markdown(period=item, filename=ch, chapter_content=chapter_content)
                         pd["chapters"].append(
-                            {"filename": ch, "content": chapter_content})
+                            {"filename": ch, "path": chapter_web_path})
 
         rn_dir = os.path.join(period_dir, "raw_notes")
         if os.path.exists(rn_dir):
@@ -209,11 +244,16 @@ def build_api():
                     str_p = str(p).strip()
                     if not str_p:
                         continue
-                    canonical = people_map.get(str_p, str_p)
+                    canonical = people_map.get(
+                        str_p,
+                        people_map_normalized.get(normalize_entity_key(str_p), str_p),
+                    )
 
                     if canonical not in people_map:
                         people_map[canonical] = canonical
+                        people_map_normalized[normalize_entity_key(canonical)] = canonical
                         people_map[str_p] = canonical
+                        people_map_normalized[normalize_entity_key(str_p)] = canonical
                         new_people_added.append(canonical)
 
                     _ensure_node(canonical, group=4)
@@ -226,11 +266,21 @@ def build_api():
                     str_pl = str(pl).strip()
                     if not str_pl:
                         continue
-                    canonical = places_map.get(str_pl, str_pl)
+                    canonical = places_map.get(
+                        str_pl,
+                        places_map_normalized.get(normalize_entity_key(str_pl), str_pl),
+                    )
+
+                    if canonical != str_pl:
+                        # Cache this variant in current run to prevent duplicate additions.
+                        places_map[str_pl] = canonical
+                        places_map_normalized[normalize_entity_key(str_pl)] = canonical
 
                     if canonical not in places_map:
                         places_map[canonical] = canonical
+                        places_map_normalized[normalize_entity_key(canonical)] = canonical
                         places_map[str_pl] = canonical
+                        places_map_normalized[normalize_entity_key(str_pl)] = canonical
                         if "·" in canonical:
                             # split by first dot only just in case
                             parts = canonical.split("·", 1)
@@ -308,9 +358,14 @@ def build_api():
     }
 
     os.makedirs(WEBAPP_PUBLIC_DIR, exist_ok=True)
-    out_path = os.path.join(WEBAPP_PUBLIC_DIR, "memoirs.json")
+    out_path = os.path.join(WEBAPP_PUBLIC_DIR, MANIFEST_FILENAME)
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(final_payload, f, ensure_ascii=False, indent=2)
+
+    # Clean up legacy output to enforce the new single-manifest contract.
+    legacy_out_path = os.path.join(WEBAPP_PUBLIC_DIR, "memoirs.json")
+    if os.path.exists(legacy_out_path):
+        os.remove(legacy_out_path)
 
     top_places = [k for k in places_index if not places_meta.get(
         k, {}).get("parent")]

@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const { syncPublicAssetsToDist } = require('../lib/build-asset-sync.js');
+const { syncPublicAssetsToDist, syncPublicChaptersToDist } = require('../lib/build-asset-sync.js');
 
 test('syncPublicAssetsToDist copies public assets into dist assets', () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memoir-assets-'));
@@ -23,6 +23,30 @@ test('syncPublicAssetsToDist copies public assets into dist assets', () => {
       fs.readFileSync(path.join(distDir, 'assets', 'US_PhD', 'banner.jpg'), 'utf8'),
       'chapter-image'
     );
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('syncPublicChaptersToDist replaces dist chapters with public chapters', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memoir-chapters-'));
+
+  try {
+    const publicChaptersDir = path.join(tempDir, 'memoirs', 'webapp', 'public', 'chapters', 'US_PhD');
+    const distChaptersDir = path.join(tempDir, 'memoirs', 'webapp', 'dist', 'chapters');
+    fs.mkdirSync(publicChaptersDir, { recursive: true });
+    fs.mkdirSync(path.join(distChaptersDir, 'legacy'), { recursive: true });
+
+    fs.writeFileSync(path.join(publicChaptersDir, '2024-09.md'), '# chapter');
+    fs.writeFileSync(path.join(distChaptersDir, 'legacy', 'stale.md'), '# stale');
+
+    syncPublicChaptersToDist(tempDir);
+
+    assert.equal(
+      fs.readFileSync(path.join(distChaptersDir, 'US_PhD', '2024-09.md'), 'utf8'),
+      '# chapter'
+    );
+    assert.equal(fs.existsSync(path.join(distChaptersDir, 'legacy', 'stale.md')), false);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }

@@ -5,7 +5,7 @@
  * memoir-agent CLI
  * ──────────────────────────────────────────────────────────────────────────
  * memoir init [dir]   — scaffold memoir system into directory (default: cwd)
- * memoir build        — compile raw_notes → memoirs.json
+ * memoir build        — compile raw_notes → memoirs.manifest.json
  * memoir open         — launch pywebview desktop viewer
  * memoir --version    — print version
  * memoir --help       — print help
@@ -17,7 +17,7 @@ const path = require('path');
 const os   = require('os');
 
 const PKG = require('./package.json');
-const { syncPublicAssetsToDist } = require('./lib/build-asset-sync');
+const { syncPublicAssetsToDist, syncPublicChaptersToDist } = require('./lib/build-asset-sync');
 const { runNpm } = require('./lib/npm-runner');
 const { getGithubUpdateInstallSpec } = require('./lib/update-source');
 
@@ -118,12 +118,12 @@ function syncTooling(templateDir, target) {
                    path.join(target, 'memoirs', 'webapp', 'src'));
 
   info('Syncing webapp/dist/ (pre-built)...');
-  // Keep user's memoirs.json intact — only overwrite non-data files
+  // Keep user's compiled memoir data intact — only overwrite tooling files
   const distSrc = path.join(templateDir, 'memoirs', 'webapp', 'dist');
   const distDst = path.join(target,      'memoirs', 'webapp', 'dist');
   if (fs.existsSync(distSrc)) {
     for (const f of fs.readdirSync(distSrc)) {
-      if (f === 'memoirs.json') continue; // preserve user data
+      if (f === 'memoirs.manifest.json' || f === 'chapters') continue; // preserve user data
       const s = path.join(distSrc, f);
       const d = path.join(distDst, f);
       if (fs.statSync(s).isDirectory()) {
@@ -202,14 +202,16 @@ function cmdBuild() {
   if (result.status !== 0) fail('Build failed.');
 
   // Sync public → dist
-  const src = path.join(process.cwd(), 'memoirs', 'webapp', 'public', 'memoirs.json');
-  const dst = path.join(process.cwd(), 'memoirs', 'webapp', 'dist',   'memoirs.json');
+  const src = path.join(process.cwd(), 'memoirs', 'webapp', 'public', 'memoirs.manifest.json');
+  const dst = path.join(process.cwd(), 'memoirs', 'webapp', 'dist',   'memoirs.manifest.json');
   if (fs.existsSync(src) && fs.existsSync(path.dirname(dst))) {
     fs.copyFileSync(src, dst);
-    ok('Synced memoirs.json → dist/');
+    ok('Synced memoirs.manifest.json → dist/');
   }
   syncPublicAssetsToDist(process.cwd());
   ok('Synced public/assets → dist/assets/');
+  syncPublicChaptersToDist(process.cwd());
+  ok('Synced public/chapters → dist/chapters/');
   ok('Build complete.');
 }
 
@@ -294,7 +296,7 @@ ${B}Usage:${RST}
 
 ${B}Commands:${RST}
   ${G}init${RST} [dir]   Scaffold memoir system in current or specified directory
-  ${G}build${RST}        Compile raw_notes → memoirs.json  (run after /recall)
+  ${G}build${RST}        Compile raw_notes → memoirs.manifest.json  (run after /recall)
   ${G}open${RST}         Launch pywebview desktop viewer
   ${G}update${RST}       Upgrade from GitHub repo + sync tooling files
   ${G}sync${RST}         Sync tooling files from current package (no npm upgrade)
