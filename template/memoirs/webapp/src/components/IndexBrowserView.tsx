@@ -5,10 +5,10 @@
  */
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import type { PeopleIndex, PlacesIndex, Entry } from '../types';
+import type { ResolvedEntityIndex, Entry } from '../types';
 import type { Translations } from '../i18n';
 
-type IndexData = PeopleIndex | PlacesIndex;
+type IndexData = ResolvedEntityIndex;
 
 interface Props {
   index:      IndexData;

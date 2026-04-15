@@ -108,6 +108,13 @@ def parse_timeline(content: str):
         return {"period": "", "entries": []}
 
 
+def build_event_ref(period: str, entry: dict):
+    """Build a stable event reference used by graph and entity indexes."""
+    date_text = str(entry.get("date", "")).strip()
+    event_text = str(entry.get("event", "")).strip()
+    return f"{period}|{date_text}|{event_text}"
+
+
 def export_chapter_assets(period: str, chapter_dir: str, chapter_content: str):
     """Rewrite chapter-local asset references to web paths and copy files into public/assets."""
     web_assets_dir = os.path.join(WEBAPP_PUBLIC_DIR, "assets", period)
@@ -213,31 +220,27 @@ def build_api():
             graph["links"].append(link)
             added_links.add(key)
 
-    def _dedup_append(index: dict, key: str, record: dict):
-        dedup = (record["entry"].get("date", ""),
-                 record["entry"].get("event", ""))
-        existing = {(r["entry"].get("date", ""), r["entry"].get("event", ""))
-                    for r in index.get(key, [])}
-        if dedup not in existing:
-            index.setdefault(key, []).append(record)
+    def _dedup_append_event_ref(index: dict, key: str, event_ref: str):
+        existing = set(index.get(key, []))
+        if event_ref not in existing:
+            index.setdefault(key, []).append(event_ref)
 
     for period, data in all_data.items():
         if "entries" not in data.get("timeline", {}):
             continue
 
         for entry in data["timeline"]["entries"]:
-            event_id = entry.get("event")
-            if not event_id:
+            event_name = str(entry.get("event", "")).strip()
+            if not event_name:
                 continue
+            event_ref = build_event_ref(period, entry)
 
-            _ensure_node(event_id, group=2, extra={
-                         "period": period, "entry": entry})
+            _ensure_node(event_ref, group=2, name=event_name)
 
             for file_path in entry.get("related_files", []):
                 rn = os.path.basename(file_path)
                 raw = data["raw_notes"].get(rn, "")
                 meta, _ = parse_frontmatter(raw)
-                record = {"period": period, "entry": entry}
 
                 # People → graph nodes (group 4) + links to event + index
                 for p in meta.get("people", []):
@@ -258,8 +261,8 @@ def build_api():
 
                     _ensure_node(canonical, group=4)
                     # ← connects to event
-                    _add_link(canonical, event_id)
-                    _dedup_append(people_index, canonical, record)
+                    _add_link(canonical, event_ref)
+                    _dedup_append_event_ref(people_index, canonical, event_ref)
 
                 # Places → graph + index
                 for pl in meta.get("places", []):
@@ -301,17 +304,17 @@ def build_api():
                         # Edge from parent place → event instead.
                         _ensure_node(parent, group=3)
                         # ← parent connected
-                        _add_link(parent, event_id)
+                        _add_link(parent, event_ref)
                     else:
                         # Top-level place: graph node + link to event
                         _ensure_node(canonical, group=3)
-                        _add_link(canonical, event_id)      # ← place connected
+                        _add_link(canonical, event_ref)      # ← place connected
 
-                    _dedup_append(places_index, canonical, record)
+                    _dedup_append_event_ref(places_index, canonical, event_ref)
 
                     # Roll up sub-location entries to parent
                     if parent:
-                        _dedup_append(places_index, parent, record)
+                        _dedup_append_event_ref(places_index, parent, event_ref)
 
     # ── 自动补全 entities.yaml ───────────────────────────────────────────────
     if new_people_added or new_places_added:

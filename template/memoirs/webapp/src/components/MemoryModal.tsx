@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { X, FileText } from 'lucide-react';
 import { ErrorBoundary } from './ErrorBoundary';
 import { ReactMarkdown, chapterMarkdownComponents } from './ChapterMarkdown';
-import type { SelectedItem, GraphLink, GraphNode } from '../types';
+import type { SelectedItem, GraphLink, GraphNode, IndexRecord } from '../types';
 import type { Translations } from '../i18n';
 
 interface Props {
@@ -13,6 +13,7 @@ interface Props {
   loadChapterContent: (period: string, date: string) => Promise<string | null>;
   graphLinks: GraphLink[];
   graphNodes: GraphNode[];
+  eventLookup: Record<string, IndexRecord>;
   t: Translations;
 }
 
@@ -28,7 +29,7 @@ const cardVariants = {
 };
 
 /** Floating modal for reading a memoir chapter or exploring entity (person/place) connections. */
-export function MemoryModal({ item, onClose, onSelectEvent, loadChapterContent, graphLinks, graphNodes, t }: Props) {
+export function MemoryModal({ item, onClose, onSelectEvent, loadChapterContent, graphLinks, graphNodes, eventLookup, t }: Props) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const [chapterContent, setChapterContent] = useState<string | null>(null);
   const [isChapterLoading, setIsChapterLoading] = useState(false);
@@ -126,7 +127,9 @@ export function MemoryModal({ item, onClose, onSelectEvent, loadChapterContent, 
                     .map((l: any, i) => {
                       const targetId = typeof l.target === 'object' ? l.target.id : l.target;
                       const evtNode = graphNodes.find(n => n.id === targetId);
-                      if (!evtNode?.entry) return null;
+                      if (!evtNode) return null;
+                      const eventRecord = eventLookup[targetId];
+                      if (!eventRecord) return null;
                       return (
                         <motion.div
                           key={i}
@@ -134,13 +137,13 @@ export function MemoryModal({ item, onClose, onSelectEvent, loadChapterContent, 
                           initial={{ opacity: 0, x: -10 }}
                           animate={{ opacity: 1, x: 0 }}
                           transition={{ duration: 0.2, delay: i * 0.05 }}
-                          onClick={() => onSelectEvent({ type: 'event', period: evtNode.period!, entry: evtNode.entry! })}
+                          onClick={() => onSelectEvent({ type: 'event', period: eventRecord.period, entry: eventRecord.entry })}
                         >
                           <div className="item-meta">
-                            <span className="item-meta-text">{evtNode.entry.date}</span>
+                            <span className="item-meta-text">{eventRecord.entry.date}</span>
                           </div>
                           <div className="item-content">
-                            <h3 className="item-title mini">{evtNode.entry.event}</h3>
+                            <h3 className="item-title mini">{eventRecord.entry.event}</h3>
                           </div>
                         </motion.div>
                       );

@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import pathlib
 import tempfile
 import textwrap
@@ -195,6 +196,40 @@ class BuildMemoirApiTests(unittest.TestCase):
             self.assertEqual(copied_asset.read_bytes(), b"chapter-image")
             self.assertEqual(chapter["path"], "/chapters/US_PhD/2024-09-lexington.md")
             self.assertIn("![Bird view](/assets/US_PhD/banner.jpg)", chapter_markdown)
+
+    def test_build_api_compacts_entity_indexes_and_graph_event_nodes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            memoirs_dir, periods_dir, raw_notes_dir, public_dir = self.configure_workspace(root)
+            (memoirs_dir / "entities.yaml").write_text("people:\nplaces:\n", encoding="utf-8")
+
+            self.write_fixture(
+                periods_dir,
+                raw_notes_dir,
+                textwrap.dedent("""\
+                    ---
+                    date: "2024-09"
+                    people: ["Alice"]
+                    places: ["Lexington Crossing"]
+                    ---
+                    body
+                """),
+            )
+
+            build_memoir_api.build_api()
+
+            manifest = json.loads((public_dir / "memoirs.manifest.json").read_text(encoding="utf-8"))
+            expected_ref = "US_PhD|2024-09|Test Event"
+
+            self.assertEqual(manifest["people_index"]["Alice"], [expected_ref])
+            self.assertEqual(manifest["places_index"]["Lexington Crossing"], [expected_ref])
+
+            event_nodes = [node for node in manifest["graph"]["nodes"] if node.get("group") == 2]
+            self.assertEqual(len(event_nodes), 1)
+            self.assertEqual(event_nodes[0]["id"], expected_ref)
+            self.assertEqual(event_nodes[0]["name"], "Test Event")
+            self.assertNotIn("entry", event_nodes[0])
+            self.assertNotIn("period", event_nodes[0])
 
 
 if __name__ == "__main__":

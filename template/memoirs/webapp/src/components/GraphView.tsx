@@ -1,19 +1,20 @@
 import { useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import ForceGraph2D from 'react-force-graph-2d';
-import type { APIPayload, GraphNode, SelectedItem, Theme } from '../types';
+import type { APIPayload, GraphNode, SelectedItem, Theme, IndexRecord } from '../types';
 import { GRAPH_COLORS } from '../constants/theme';
 import type { Translations } from '../i18n';
 
 interface Props {
   graph: APIPayload['graph'];
+  eventLookup: Record<string, IndexRecord>;
   theme: Theme;
   onNodeClick: (item: SelectedItem) => void;
   t: Translations;
 }
 
 /** Knowledge graph — events connected to people and places. */
-export function GraphView({ graph, theme, onNodeClick, t }: Props) {
+export function GraphView({ graph, eventLookup, theme, onNodeClick, t }: Props) {
   const graphRef = useRef<any>(null);
   const colors = GRAPH_COLORS[theme];
 
@@ -27,12 +28,20 @@ export function GraphView({ graph, theme, onNodeClick, t }: Props) {
   };
 
   const handleNodeClick = useCallback((node: any) => {
-    if (node.group === 2 && node.entry) {
-      onNodeClick({ type: 'event', period: node.period, entry: node.entry });
+    if (node.group === 2) {
+      const eventRecord = eventLookup[node.id];
+      if (eventRecord) {
+        onNodeClick({ type: 'event', period: eventRecord.period, entry: eventRecord.entry });
+        return;
+      }
+    }
+    if (node.group !== 2) {
+      onNodeClick({ type: 'tag', tagNode: node as GraphNode });
     } else {
+      // Fallback for corrupted/old graph nodes that point to missing events.
       onNodeClick({ type: 'tag', tagNode: node as GraphNode });
     }
-  }, [onNodeClick]);
+  }, [eventLookup, onNodeClick]);
 
   return (
     <motion.main

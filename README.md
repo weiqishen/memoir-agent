@@ -77,7 +77,7 @@ memoir open
 
 ```
 memoir init [dir]   初始化项目（当前目录或指定目录）
-memoir build        编译 raw_notes → memoirs.manifest.json + chapters
+memoir build [--force] 编译 raw_notes → memoirs.manifest.json + chapters
 memoir open         启动 pywebview 桌面查看器
 memoir update       从 GitHub 默认分支更新 + 同步工具文件
 memoir sync         仅同步工具文件（不升级 npm 包）
@@ -164,6 +164,10 @@ memoir sync
 ```
 
 `memoir update` 固定从 GitHub tarball 更新，不再查询 npm registry 版本。
+
+`memoir build` 现在内置流程守卫：
+- 默认会阻断跳步（例如草稿未 commit、timeline 尚未全部生成章节）。
+- 使用 `memoir build --force` 可绕过阻断，并写入 `memoirs/.workflow_guard.log` 审计记录。
 
 `update` / `sync` 会覆盖以下目录：
 - `.agents/` （技能 + 工作流）

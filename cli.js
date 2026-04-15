@@ -30,30 +30,75 @@ const fail = (s) => { console.error(`${R}✗${RST}  ${s}`); process.exit(1); };
 const info = (s) => console.log(`${C}→${RST}  ${s}`);
 
 // ── Python detection ────────────────────────────────────────────────────────
-function detectPython() {
-  for (const cmd of ['python', 'python3']) {
-    const r = spawnSync(cmd, ['--version'], { stdio: 'pipe' });
-    if (r.status === 0) return cmd;
+function probePythonCandidate(command, preArgs = []) {
+  const result = spawnSync(command, [...preArgs, '--version'], { stdio: 'pipe' });
+  if (result.status === 0) {
+    return { command, preArgs };
   }
   return null;
 }
 
+function detectWindowsPythonFromWhere() {
+  if (os.platform() !== 'win32') return null;
+
+  // The WindowsApps shim may shadow real Python binaries.
+  // Use `where` to probe concrete executable paths as a fallback.
+  for (const lookup of ['python', 'python3']) {
+    const whereResult = spawnSync('where', [lookup], { stdio: 'pipe', encoding: 'utf8' });
+    if (whereResult.status !== 0) continue;
+
+    const paths = String(whereResult.stdout || '')
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .filter(Boolean);
+
+    for (const resolvedPath of paths) {
+      const resolved = probePythonCandidate(resolvedPath);
+      if (resolved) return resolved;
+    }
+  }
+  return null;
+}
+
+function detectPython() {
+  const preferredCmd = process.env.MEMOIR_PYTHON_CMD;
+  if (preferredCmd) {
+    const preferred = probePythonCandidate(preferredCmd);
+    if (preferred) return preferred;
+  }
+
+  // Support common launchers on Windows and Unix-like systems.
+  const candidates = [
+    { command: 'python', preArgs: [] },
+    { command: 'python3', preArgs: [] },
+    { command: 'py', preArgs: ['-3'] },
+  ];
+  for (const candidate of candidates) {
+    const resolved = probePythonCandidate(candidate.command, candidate.preArgs);
+    if (resolved) return resolved;
+  }
+  const windowsResolved = detectWindowsPythonFromWhere();
+  if (windowsResolved) return windowsResolved;
+  return null;
+}
+
 function detectPythonw() {
-  // On Windows, prefer pythonw (no console window)
+  // On Windows, prefer pythonw (no console window).
   if (os.platform() === 'win32') {
-    const r = spawnSync('pythonw', ['--version'], { stdio: 'pipe' });
-    if (r.status === 0) return 'pythonw';
+    const pythonw = probePythonCandidate('pythonw');
+    if (pythonw) return pythonw;
   }
   return detectPython();
 }
 
-function ensurePythonDeps(pyCmd) {
+function ensurePythonDeps(pyRunner) {
+  if (process.env.MEMOIR_SKIP_PY_DEPS === '1') return;
   const req = path.join(__dirname, 'requirements.txt');
-  // Fast check: is pyyaml importable?
-  const check = spawnSync(pyCmd, ['-c', 'import yaml, webview'], { stdio: 'pipe' });
+  // Fast check: are required runtime modules importable?
+  const check = spawnSync(pyRunner.command, [...pyRunner.preArgs, '-c', 'import yaml, webview'], { stdio: 'pipe' });
   if (check.status !== 0) {
     info('Installing Python dependencies (one-time)...');
-    const install = spawnSync(pyCmd, ['-m', 'pip', 'install', '-r', req, '--quiet'],
+    const install = spawnSync(pyRunner.command, [...pyRunner.preArgs, '-m', 'pip', 'install', '-r', req, '--quiet'],
       { stdio: 'inherit' });
     if (install.status !== 0) {
       warn('pip install failed — build may not work correctly.');
@@ -180,22 +225,39 @@ ${B}Next steps:${RST}
 `);
 }
 
-function cmdBuild() {
-  const pyCmd = detectPython();
-  if (!pyCmd) fail('Python 3 not found. Install it from https://python.org');
+function cmdBuild(args = []) {
+  const pyRunner = detectPython();
+  if (!pyRunner) fail('Python 3 not found. Install it from https://python.org');
 
-  ensurePythonDeps(pyCmd);
+  const forceBuild = args.includes('--force');
+  ensurePythonDeps(pyRunner);
 
+  const guardScript = path.join(
+    process.cwd(),
+    '.agents', 'skills', 'biographer-skill', 'tools', 'workflow_guard.py'
+  );
   const script = path.join(
     process.cwd(),
     '.agents', 'skills', 'biographer-skill', 'tools', 'build_memoir_api.py'
   );
+  if (!fs.existsSync(guardScript)) {
+    fail('workflow_guard.py not found.\nRun memoir sync to update tooling files.');
+  }
   if (!fs.existsSync(script)) {
     fail('build_memoir_api.py not found.\nAre you in your memoir root directory?');
   }
 
+  info('Running workflow guard for build...');
+  const guardArgs = [guardScript, '--action', 'build'];
+  if (forceBuild) guardArgs.push('--force');
+  const guardResult = spawnSync(pyRunner.command, [...pyRunner.preArgs, ...guardArgs], {
+    stdio: 'inherit',
+    cwd: process.cwd(),
+  });
+  if (guardResult.status !== 0) fail('Workflow guard blocked build.');
+
   info('Building memoir data...');
-  const result = spawnSync(pyCmd, [script], {
+  const result = spawnSync(pyRunner.command, [...pyRunner.preArgs, script], {
     stdio: 'inherit',
     cwd: process.cwd(),
   });
@@ -216,8 +278,8 @@ function cmdBuild() {
 }
 
 function cmdOpen() {
-  const pyCmd = detectPythonw();
-  if (!pyCmd) fail('Python not found. Install from https://python.org');
+  const pyRunner = detectPythonw();
+  if (!pyRunner) fail('Python not found. Install from https://python.org');
 
   const script = path.join(process.cwd(), 'open_memoirs.pyw');
   if (!fs.existsSync(script)) {
@@ -225,7 +287,7 @@ function cmdOpen() {
   }
 
   info('Launching memoir viewer...');
-  const child = spawn(pyCmd, [script], {
+  const child = spawn(pyRunner.command, [...pyRunner.preArgs, script], {
     detached: true,
     stdio:    'ignore',
     cwd:      process.cwd(),
@@ -294,9 +356,9 @@ AI-powered personal memoir archival system
 ${B}Usage:${RST}
   memoir <command> [options]
 
-${B}Commands:${RST}
+  ${B}Commands:${RST}
   ${G}init${RST} [dir]   Scaffold memoir system in current or specified directory
-  ${G}build${RST}        Compile raw_notes → memoirs.manifest.json  (run after /recall)
+  ${G}build${RST} [--force]  Compile raw_notes → memoirs.manifest.json  (run after /recall)
   ${G}open${RST}         Launch pywebview desktop viewer
   ${G}update${RST}       Upgrade from GitHub repo + sync tooling files
   ${G}sync${RST}         Sync tooling files from current package (no npm upgrade)
@@ -309,6 +371,7 @@ ${B}Examples:${RST}
   memoir init                 # initialize in current directory
   memoir init ~/my-memoirs    # initialize in a specific path
   memoir build
+  memoir build --force         # bypass guard checks and write an audit record
   memoir open
   memoir update               # pull from GitHub default branch + sync tooling
   memoir sync                 # sync tooling files only
@@ -323,7 +386,7 @@ const [cmd, ...args] = process.argv.slice(2);
 
 switch (cmd) {
   case 'init':              cmdInit(args);   break;
-  case 'build':             cmdBuild();      break;
+  case 'build':             cmdBuild(args);  break;
   case 'open':              cmdOpen();       break;
   case 'update':            cmdUpdate();     break;
   case 'sync':              cmdSync();       break;

@@ -9,22 +9,29 @@ description: 将最新的原始笔记和章节编译成网页可读的 manifest 
 ## 执行步骤：
 
 // turbo
-1. **运行 API 编译脚本**，将 `raw_notes`、`chapters`、`timeline.yaml` 整合为 `memoirs.manifest.json`，并发布章节 markdown 到 `public/chapters/`：
+1. **先执行流程守卫**：运行下列命令。如果返回非零，立即停止后续操作并把阻断原因告知用户。
+   ```
+   python .agents/skills/biographer-skill/tools/workflow_guard.py --action build
+   ```
+   - 仅当用户明确要求强制跳过时，才允许追加 `--force`，并告知会写入 `memoirs/.workflow_guard.log` 审计记录。
+
+// turbo
+2. **运行 API 编译脚本**，将 `raw_notes`、`chapters`、`timeline.yaml` 整合为 `memoirs.manifest.json`，并发布章节 markdown 到 `public/chapters/`：
    ```
    python .agents/skills/biographer-skill/tools/build_memoir_api.py
    ```
    输出位置：`memoirs/webapp/public/memoirs.manifest.json`
 
 // turbo
-2. **同步到 dist 目录**（供 `open_memoirs.pyw` 读取，无需完整重新构建前端）：
+3. **同步到 dist 目录**（供 `open_memoirs.pyw` 读取，无需完整重新构建前端）：
    ```
    copy memoirs\webapp\public\memoirs.manifest.json memoirs\webapp\dist\memoirs.manifest.json
    xcopy /E /I /Y memoirs\webapp\public\chapters memoirs\webapp\dist\chapters
    xcopy /E /I /Y memoirs\webapp\public\assets memoirs\webapp\dist\assets
    ```
-   > 注：若 `dist/` 目录不存在，需先执行步骤 3。
+   > 注：若 `dist/` 目录不存在，需先执行步骤 4。
 
-3. **（可选）完整前端重建**，仅在修改了 webapp 代码（`.tsx`/`.css`）后才需要：
+4. **（可选）完整前端重建**，仅在修改了 webapp 代码（`.tsx`/`.css`）后才需要：
    ```
    cd memoirs/webapp && npm run build
    ```

@@ -26,8 +26,6 @@ export interface GraphNode {
   id: string;
   name: string;
   group: number;   // 2=event  3=place  4=person
-  period?: string;
-  entry?: Entry;
   parent?: string;
   x?: number;
   y?: number;
@@ -40,12 +38,16 @@ export interface GraphLink {
 
 /** Hierarchy / display metadata for places */
 export type PlacesMeta = Record<string, { display?: string; parent?: string }>;
+export type EventRef = string;
+export type EntityEventIndex = Record<string, EventRef[]>;
+export type IndexRecord = { period: string; entry: Entry };
+export type ResolvedEntityIndex = Record<string, IndexRecord[]>;
 
 export interface APIPayload {
   memoirs:      Record<string, MemoirData>;
   graph:        { nodes: GraphNode[]; links: GraphLink[] };
-  people_index: PeopleIndex;
-  places_index: PlacesIndex;
+  people_index: EntityEventIndex;
+  places_index: EntityEventIndex;
   places_meta:  PlacesMeta;
 }
 
@@ -58,8 +60,3 @@ export type ViewMode = 'chapters' | 'year' | 'people' | 'location' | 'graph';
 export type SelectedItem =
   | { type: 'event'; period: string; entry: Entry }
   | { type: 'tag';   tagNode: GraphNode };
-
-/** { personName: [{period, entry}, ...] } */
-export type PeopleIndex = Record<string, { period: string; entry: Entry }[]>;
-/** { placeName:  [{period, entry}, ...] } */
-export type PlacesIndex = Record<string, { period: string; entry: Entry }[]>;

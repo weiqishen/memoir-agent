@@ -11,7 +11,17 @@ import { WindowControls }    from './components/WindowControls';
 import { IndexBrowserView }  from './components/IndexBrowserView';
 import { PlacesView }        from './components/PlacesView';
 import { TRANSLATIONS }      from './i18n';
-import type { APIPayload, SelectedItem, Theme, Lang, ViewMode, Entry } from './types';
+import type {
+  APIPayload,
+  SelectedItem,
+  Theme,
+  Lang,
+  ViewMode,
+  Entry,
+  EntityEventIndex,
+  ResolvedEntityIndex,
+  IndexRecord,
+} from './types';
 import './App.css';
 
 // ── Year-grouped view helper ─────────────────────────────────────────────────
@@ -25,6 +35,31 @@ function groupByYear(memoirs: APIPayload['memoirs']) {
     });
   });
   return map;
+}
+
+function buildEventRef(period: string, entry: Entry): string {
+  return `${period}|${entry.date ?? ''}|${entry.event ?? ''}`;
+}
+
+function buildEventLookup(memoirs: APIPayload['memoirs']): Record<string, IndexRecord> {
+  const lookup: Record<string, IndexRecord> = {};
+  Object.entries(memoirs).forEach(([period, periodData]) => {
+    (periodData.timeline.entries || []).forEach(entry => {
+      lookup[buildEventRef(period, entry)] = { period, entry };
+    });
+  });
+  return lookup;
+}
+
+function resolveEntityIndex(rawIndex: EntityEventIndex, eventLookup: Record<string, IndexRecord>): ResolvedEntityIndex {
+  const resolved: ResolvedEntityIndex = {};
+  Object.entries(rawIndex).forEach(([key, eventRefs]) => {
+    const records = (eventRefs || [])
+      .map(eventRef => eventLookup[eventRef])
+      .filter((record): record is IndexRecord => Boolean(record));
+    resolved[key] = records;
+  });
+  return resolved;
 }
 
 export default function App() {
@@ -110,6 +145,15 @@ export default function App() {
     : [], [data]);
 
   const yearIndex = useMemo(() => data ? groupByYear(data.memoirs) : {}, [data]);
+  const eventLookup = useMemo(() => data ? buildEventLookup(data.memoirs) : {}, [data]);
+  const resolvedPeopleIndex = useMemo(
+    () => data ? resolveEntityIndex(data.people_index, eventLookup) : {},
+    [data, eventLookup]
+  );
+  const resolvedPlacesIndex = useMemo(
+    () => data ? resolveEntityIndex(data.places_index, eventLookup) : {},
+    [data, eventLookup]
+  );
 
   const searchResults = searchQuery.trim()
     ? allEntries.filter(({ entry }) => {
@@ -228,7 +272,7 @@ export default function App() {
           />
         ) : viewMode === 'people' ? (
           <IndexBrowserView
-            index={data.people_index}
+            index={resolvedPeopleIndex}
             icon={<Users size={15} />}
             emptyLabel={t.noData}
             onSelectEntry={handleSelectEntry}
@@ -236,7 +280,7 @@ export default function App() {
           />
         ) : viewMode === 'location' ? (
           <PlacesView
-            placesIndex={data.places_index}
+            placesIndex={resolvedPlacesIndex}
             placesMeta={data.places_meta}
             onSelectEntry={handleSelectEntry}
             t={t}
@@ -244,6 +288,7 @@ export default function App() {
         ) : (
           <GraphView
             graph={data.graph}
+            eventLookup={eventLookup}
             theme={theme}
             onNodeClick={handleNodeClick}
             t={t}
@@ -259,6 +304,7 @@ export default function App() {
         loadChapterContent={loadChapterContent}
         graphLinks={data.graph.links}
         graphNodes={data.graph.nodes}
+        eventLookup={eventLookup}
         t={t}
       />
     </div>

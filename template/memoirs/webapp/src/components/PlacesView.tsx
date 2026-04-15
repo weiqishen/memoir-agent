@@ -9,11 +9,11 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MapPin, ChevronRight } from 'lucide-react';
-import type { PlacesIndex, PlacesMeta, Entry } from '../types';
+import type { ResolvedEntityIndex, PlacesMeta, Entry } from '../types';
 import type { Translations } from '../i18n';
 
 interface Props {
-  placesIndex: PlacesIndex;
+  placesIndex: ResolvedEntityIndex;
   placesMeta:  PlacesMeta;
   onSelectEntry: (period: string, entry: Entry) => void;
   t: Translations;
