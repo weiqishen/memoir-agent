@@ -113,14 +113,29 @@ export default function App() {
   }, []);
 
   // ── Derived data ───────────────────────────────────────────────────────────
-  const getChapterPath = useCallback((period: string, date: string): string | null => {
+  const getChapterPath = useCallback((period: string, entry: Entry): string | null => {
     if (!data) return null;
-    const chapter = data.memoirs[period]?.chapters?.find(ch => ch.filename.startsWith(date));
+    const chapters = data.memoirs[period]?.chapters || [];
+    if (entry.related_files && entry.related_files.length > 0) {
+      const relFile = entry.related_files[0];
+      const relBasename = relFile.split('/').pop() || '';
+      
+      const getSuffix = (filename: string): string => {
+        const name = filename.replace(/\.[^/.]+$/, "");
+        const suffix = name.replace(/^\d{4}[-_]\d{2}([-_]\d{2})?[-_]?/, "");
+        return suffix.toLowerCase().replace(/[^a-z0-9]/g, "");
+      };
+
+      const relSuffix = getSuffix(relBasename);
+      const match = chapters.find(ch => getSuffix(ch.filename) === relSuffix);
+      if (match) return match.path;
+    }
+    const chapter = chapters.find(ch => ch.filename.startsWith(entry.date));
     return chapter?.path ?? null;
   }, [data]);
 
-  const loadChapterContent = useCallback(async (period: string, date: string): Promise<string | null> => {
-    const chapterPath = getChapterPath(period, date);
+  const loadChapterContent = useCallback(async (period: string, entry: Entry): Promise<string | null> => {
+    const chapterPath = getChapterPath(period, entry);
     if (!chapterPath) return null;
 
     const cached = chapterCacheRef.current.get(chapterPath);

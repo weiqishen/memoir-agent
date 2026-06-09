@@ -3,14 +3,14 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { X, FileText } from 'lucide-react';
 import { ErrorBoundary } from './ErrorBoundary';
 import { ReactMarkdown, chapterMarkdownComponents } from './ChapterMarkdown';
-import type { SelectedItem, GraphLink, GraphNode, IndexRecord } from '../types';
+import type { SelectedItem, GraphLink, GraphNode, IndexRecord, Entry } from '../types';
 import type { Translations } from '../i18n';
 
 interface Props {
   item: SelectedItem | null;
   onClose: () => void;
   onSelectEvent: (item: SelectedItem) => void;
-  loadChapterContent: (period: string, date: string) => Promise<string | null>;
+  loadChapterContent: (period: string, entry: Entry) => Promise<string | null>;
   graphLinks: GraphLink[];
   graphNodes: GraphNode[];
   eventLookup: Record<string, IndexRecord>;
@@ -52,7 +52,7 @@ export function MemoryModal({ item, onClose, onSelectEvent, loadChapterContent, 
     setIsChapterLoading(true);
     setChapterContent(null);
 
-    loadChapterContent(item.period, item.entry.date)
+    loadChapterContent(item.period, item.entry)
       .then(content => {
         if (cancelled) return;
         setChapterContent(content);
