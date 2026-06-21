@@ -11,6 +11,7 @@ import { WindowControls }    from './components/WindowControls';
 import { IndexBrowserView }  from './components/IndexBrowserView';
 import { PlacesView }        from './components/PlacesView';
 import { TRANSLATIONS }      from './i18n';
+import { chapterMatchesEntry, getEntryYear } from './timeModel';
 import type {
   APIPayload,
   SelectedItem,
@@ -29,7 +30,7 @@ function groupByYear(memoirs: APIPayload['memoirs']) {
   const map: Record<string, { period: string; entry: Entry }[]> = {};
   Object.entries(memoirs).forEach(([period, pd]) => {
     (pd.timeline.entries || []).forEach(entry => {
-      const year = (entry.date ?? '').slice(0, 4) || '未知';
+      const year = getEntryYear(entry);
       map[year] = map[year] || [];
       map[year].push({ period, entry });
     });
@@ -38,6 +39,9 @@ function groupByYear(memoirs: APIPayload['memoirs']) {
 }
 
 function buildEventRef(period: string, entry: Entry): string {
+  if (entry.id?.trim()) {
+    return `${period}|${entry.id.trim()}`;
+  }
   return `${period}|${entry.date ?? ''}|${entry.event ?? ''}`;
 }
 
@@ -116,21 +120,7 @@ export default function App() {
   const getChapterPath = useCallback((period: string, entry: Entry): string | null => {
     if (!data) return null;
     const chapters = data.memoirs[period]?.chapters || [];
-    if (entry.related_files && entry.related_files.length > 0) {
-      const relFile = entry.related_files[0];
-      const relBasename = relFile.split('/').pop() || '';
-      
-      const getSuffix = (filename: string): string => {
-        const name = filename.replace(/\.[^/.]+$/, "");
-        const suffix = name.replace(/^\d{4}[-_]\d{2}([-_]\d{2})?[-_]?/, "");
-        return suffix.toLowerCase().replace(/[^a-z0-9]/g, "");
-      };
-
-      const relSuffix = getSuffix(relBasename);
-      const match = chapters.find(ch => getSuffix(ch.filename) === relSuffix);
-      if (match) return match.path;
-    }
-    const chapter = chapters.find(ch => ch.filename.startsWith(entry.date));
+    const chapter = chapters.find(ch => chapterMatchesEntry(ch.filename, entry));
     return chapter?.path ?? null;
   }, [data]);
 
@@ -318,7 +308,6 @@ export default function App() {
         onSelectEvent={setSelectedItem}
         loadChapterContent={loadChapterContent}
         graphLinks={data.graph.links}
-        graphNodes={data.graph.nodes}
         eventLookup={eventLookup}
         t={t}
       />

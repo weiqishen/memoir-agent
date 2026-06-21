@@ -1,6 +1,13 @@
 # memoir-agent dev files (not published to npm)
 scripts/prepare-template.js
 .npmignore
+**/__pycache__/
+**/*.pyc
+**/node_modules/
+**/node_modules/**
+!template/memoirs/webapp/dist/memoirs.manifest.json
+!template/memoirs/webapp/public/
+!template/memoirs/webapp/public/memoirs.manifest.json
 
 # template/ is populated by prepare-template.js before publish
 # but we DO want to publish it once populated

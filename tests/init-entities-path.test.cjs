@@ -17,6 +17,9 @@ test('memoir init scaffolds entities registry under memoirs/entities.yaml', () =
     assert.equal(result.status, 0, result.stderr || result.stdout);
     assert.equal(fs.existsSync(path.join(tempDir, 'memoirs', 'entities.yaml')), true);
     assert.equal(fs.existsSync(path.join(tempDir, 'entities.yaml')), false);
+    assert.equal(fs.existsSync(path.join(tempDir, '.gitignore')), true);
+    assert.equal(fs.existsSync(path.join(tempDir, 'gitignore.template')), false);
+    assert.equal(fs.existsSync(path.join(tempDir, '.npmignore')), false);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }

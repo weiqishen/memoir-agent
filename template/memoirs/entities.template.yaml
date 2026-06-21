@@ -2,20 +2,27 @@
 # ────────────────────────────────────────────────────────────────────────────
 # Define all named people and places here.
 # The compiler uses this to build the knowledge graph and hierarchical views.
+# Aliases are matched case-insensitively, width-insensitively, and with common
+# separators normalized. Add multilingual names and abbreviations here.
 #
 # FQN (Fully Qualified Name) rules for places:
 #   Top-level:   "虹桥火车站"
 #   Sub-level:   "虹桥火车站·二楼候车厅"  (use middle dot · as separator)
+# For child places, parent aliases combine with child aliases automatically:
+#   "UF" + "commuter lot" resolves to "佛罗里达大学·通勤停车场"
 #
 # ── People ───────────────────────────────────────────────────────────────────
 people:
   # "人名":
   #   display: "显示名"
+  #   aliases: ["英文名", "简称", "外号"]
 
 # ── Places ───────────────────────────────────────────────────────────────────
 places:
   # "地点FQN":
   #   display: "显示名"
+  #   aliases: ["英文名", "简称"]
   # "父地点·子地点":
   #   display: "子地点显示名"
   #   parent: "父地点"
+  #   aliases: ["子地点英文名", "子地点简称"]

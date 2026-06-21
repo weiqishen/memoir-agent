@@ -3,8 +3,10 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { X, FileText } from 'lucide-react';
 import { ErrorBoundary } from './ErrorBoundary';
 import { ReactMarkdown, chapterMarkdownComponents } from './ChapterMarkdown';
-import type { SelectedItem, GraphLink, GraphNode, IndexRecord, Entry } from '../types';
+import type { SelectedItem, GraphLink, IndexRecord, Entry } from '../types';
 import type { Translations } from '../i18n';
+import { getConnectedEventRefs } from '../graphModel';
+import { getEntryTimeLabel } from '../timeModel';
 
 interface Props {
   item: SelectedItem | null;
@@ -12,7 +14,6 @@ interface Props {
   onSelectEvent: (item: SelectedItem) => void;
   loadChapterContent: (period: string, entry: Entry) => Promise<string | null>;
   graphLinks: GraphLink[];
-  graphNodes: GraphNode[];
   eventLookup: Record<string, IndexRecord>;
   t: Translations;
 }
@@ -29,7 +30,7 @@ const cardVariants = {
 };
 
 /** Floating modal for reading a memoir chapter or exploring entity (person/place) connections. */
-export function MemoryModal({ item, onClose, onSelectEvent, loadChapterContent, graphLinks, graphNodes, eventLookup, t }: Props) {
+export function MemoryModal({ item, onClose, onSelectEvent, loadChapterContent, graphLinks, eventLookup, t }: Props) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const [chapterContent, setChapterContent] = useState<string | null>(null);
   const [isChapterLoading, setIsChapterLoading] = useState(false);
@@ -119,16 +120,9 @@ export function MemoryModal({ item, onClose, onSelectEvent, loadChapterContent, 
                   <h2>{t.connectedTo(item.tagNode.name)}</h2>
                 </div>
                 <div className="tag-links-list">
-                  {graphLinks
-                    .filter((l: any) => {
-                      const srcId = typeof l.source === 'object' ? l.source.id : l.source;
-                      return srcId === item.tagNode.id;
-                    })
-                    .map((l: any, i) => {
-                      const targetId = typeof l.target === 'object' ? l.target.id : l.target;
-                      const evtNode = graphNodes.find(n => n.id === targetId);
-                      if (!evtNode) return null;
-                      const eventRecord = eventLookup[targetId];
+                  {getConnectedEventRefs(item.tagNode.id, graphLinks)
+                    .map((eventRef, i) => {
+                      const eventRecord = eventLookup[eventRef];
                       if (!eventRecord) return null;
                       return (
                         <motion.div
@@ -140,7 +134,7 @@ export function MemoryModal({ item, onClose, onSelectEvent, loadChapterContent, 
                           onClick={() => onSelectEvent({ type: 'event', period: eventRecord.period, entry: eventRecord.entry })}
                         >
                           <div className="item-meta">
-                            <span className="item-meta-text">{eventRecord.entry.date}</span>
+                            <span className="item-meta-text">{getEntryTimeLabel(eventRecord.entry)}</span>
                           </div>
                           <div className="item-content">
                             <h3 className="item-title mini">{eventRecord.entry.event}</h3>

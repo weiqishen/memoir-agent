@@ -1,1 +1,9 @@
 *.pyc
+**/__pycache__/
+**/node_modules/
+.codegraph/
+template/memoirs/periods/
+template/memoirs/webapp/public/chapters/
+template/memoirs/webapp/public/assets/
+template/memoirs/webapp/dist/chapters/
+template/memoirs/entities.yaml

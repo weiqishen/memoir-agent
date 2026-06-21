@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { ResolvedEntityIndex, Entry } from '../types';
 import type { Translations } from '../i18n';
+import { getEntryTimeLabel } from '../timeModel';
 
 type IndexData = ResolvedEntityIndex;
 
@@ -74,7 +75,7 @@ export function IndexBrowserView({ index, icon, emptyLabel, onSelectEntry, t }: 
                       transition={{ delay: i * 0.04 }}
                       onClick={() => onSelectEntry(period, entry)}
                     >
-                      <span className="entry-date">{entry.date}</span>
+                      <span className="entry-date">{getEntryTimeLabel(entry)}</span>
                       <span className="entry-title">{entry.event}</span>
                       <span className="entry-summary">{entry.summary}</span>
                     </motion.li>

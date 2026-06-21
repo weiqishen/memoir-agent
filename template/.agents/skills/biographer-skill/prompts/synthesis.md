@@ -76,4 +76,4 @@
 ↑ 时间+地点+动作 直接开场，无任何段落标签
 ```
 
-> **系统执行限制**: 文章生成后，使用 `write_to_file` 直接落笔至 `memoirs/periods/[阶段]/chapters/` 中。文件命名必须强制遵守时间排序法：`YYYY-MM-DD-事件短名.md`（如 `2019-12-10-snow_in_boston.md`），确保它们天然形成带有史料纵深的书本篇目。
+> **系统执行限制**: 文章生成后，使用 `write_to_file` 直接落笔至 `memoirs/periods/[阶段]/chapters/` 中。文件命名必须保留排序友好的时间前缀，但不得编造不存在的日期精度：精确日用 `YYYY-MM-DD-event_slug.md`，月份用 `YYYY-MM-event_slug.md`，季度用 `YYYY-Q3-event_slug.md`，年份用 `YYYY-event_slug.md`。如果 timeline entry 有稳定 `id`，优先让文件名包含该 `id`，例如 `2024-Q3-first_semester.md`。

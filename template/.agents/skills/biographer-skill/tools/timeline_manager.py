@@ -5,14 +5,29 @@ import datetime
 import shutil
 import re
 import mimetypes
+import sys
 from urllib.parse import urlparse
 from urllib.request import urlopen
 
 # Base path derivation
 CURRENT_DIR   = os.path.dirname(os.path.abspath(__file__))
+if CURRENT_DIR not in sys.path:
+    sys.path.insert(0, CURRENT_DIR)
+
+from time_spec import parse_time_spec
+
 WORKSPACE_DIR = os.path.abspath(os.path.join(CURRENT_DIR, "../../../../"))
 MEMOIRS_DIR   = os.path.join(WORKSPACE_DIR, "memoirs")
 PERIODS_DIR   = os.path.join(MEMOIRS_DIR, "periods")  # all period folders live here
+
+
+def sanitize_date_for_filename(date):
+    """Convert fuzzy date text into a stable filesystem-safe prefix."""
+    parsed = parse_time_spec(date)
+    date_text = parsed.value if parsed.status == "resolved" else str(date or "")
+    if "-Q" in date_text:
+        date_text = date_text.replace("-Q", "_Q")
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", date_text).strip("_") or "undated"
 
 
 def build_asset_filename(date, source, headers=None):
@@ -32,7 +47,7 @@ def build_asset_filename(date, source, headers=None):
     if not ext:
         ext = ".bin"
 
-    return f"{date}_{stem or 'asset'}{ext}"
+    return f"{sanitize_date_for_filename(date)}_{stem or 'asset'}{ext}"
 
 
 def copy_markdown_asset(filepath, date, assets_dir):

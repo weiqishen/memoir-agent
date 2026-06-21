@@ -20,6 +20,12 @@ class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
 
 
 class TimelineManagerRemoteImageTests(unittest.TestCase):
+    def test_build_asset_filename_sanitizes_fuzzy_date_for_filesystem(self):
+        self.assertEqual(
+            timeline_manager.build_asset_filename("约2024年第三季度", "banner photo.jpg"),
+            "2024_Q3_banner photo.jpg",
+        )
+
     def test_generate_raw_note_downloads_remote_markdown_image_to_assets(self):
         with tempfile.TemporaryDirectory() as workspace_dir, tempfile.TemporaryDirectory() as served_dir:
             original_periods_dir = timeline_manager.PERIODS_DIR

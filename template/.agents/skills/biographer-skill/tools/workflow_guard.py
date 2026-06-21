@@ -5,6 +5,7 @@ import argparse
 import datetime
 import json
 import os
+import re
 import sys
 from typing import Any
 
@@ -53,6 +54,54 @@ def list_markdown_files(path: str) -> list[str]:
     return sorted(name for name in os.listdir(path) if name.endswith(".md"))
 
 
+def normalize_match_key(value: str) -> str:
+    """Normalize chapter and event identifiers for fuzzy-date-safe matching."""
+    return re.sub(r"[^a-z0-9]", "", value.lower())
+
+
+def strip_markdown_extension(filename: str) -> str:
+    return re.sub(r"\.[^/.]+$", "", filename)
+
+
+def strip_leading_time_prefix(filename: str) -> str:
+    return re.sub(
+        r"^\d{4}(?:[-_](?:\d{2}(?:[-_]\d{2})?|q[1-4]|sp|su|au|wi))?[-_]?",
+        "",
+        filename,
+        flags=re.IGNORECASE,
+    )
+
+
+def chapter_suffix_key(filename: str) -> str:
+    """Return the semantic suffix after a leading exact or fuzzy time prefix."""
+    return normalize_match_key(strip_leading_time_prefix(strip_markdown_extension(filename)))
+
+
+def entry_chapter_match_keys(entry: dict[str, Any]) -> list[str]:
+    keys: list[str] = []
+    for related_file in entry.get("related_files", []) or []:
+        basename = os.path.basename(str(related_file))
+        suffix = chapter_suffix_key(basename)
+        if suffix:
+            keys.append(suffix)
+
+    entry_id = str(entry.get("id", "")).strip()
+    if entry_id:
+        keys.append(normalize_match_key(entry_id))
+
+    date_text = str(entry.get("date", "")).strip()
+    if date_text:
+        keys.append(normalize_match_key(date_text))
+
+    return list(dict.fromkeys(key for key in keys if key))
+
+
+def chapter_matches_entry(filename: str, entry: dict[str, Any]) -> bool:
+    suffix = chapter_suffix_key(filename)
+    full = normalize_match_key(strip_markdown_extension(filename))
+    return any(key in {suffix, full} for key in entry_chapter_match_keys(entry))
+
+
 def is_draft_pending() -> bool:
     if not os.path.exists(DRAFT_BUFFER_PATH):
         return False
@@ -73,7 +122,7 @@ def collect_unsynthesized_entries() -> list[dict[str, str]]:
             event_text = str(entry.get("event", "")).strip()
             if not date_text:
                 continue
-            if any(filename.startswith(date_text) for filename in chapter_files):
+            if any(chapter_matches_entry(filename, entry) for filename in chapter_files):
                 continue
             missing.append(
                 {

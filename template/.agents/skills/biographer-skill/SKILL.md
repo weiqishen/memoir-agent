@@ -60,18 +60,30 @@ memoirs/
 `timeline_manager.py` 会自动在 `periods/` 下创建对应的生命周期目录，无需手动操作。
 推断出英文简写 (如 `Childhood`, `US_PhD`, `FirstJob`) 作为 `--period` 参数即可。
 
+## 时间字段速查
+
+`timeline.yaml` 的 `date` 字段可以保留材料真实支持的粒度：`YYYY-MM-DD`、`YYYY-MM`、`YYYY`、`YYYY-Q3`、`YYYY年第三季度`、`约YYYY年`。不要为了排序而编造具体日。编译器会在 `memoirs.manifest.json` 中补充规范化 `time` 元数据，并把无法解析或歧义的时间写入 `memoirs/.time_resolution_report.json`。
+
+粗粒度时间的章节文件名应包含稳定事件 slug 或 timeline `id`，例如 `2024-Q3-first_semester.md`，避免 `2024` 这类年份级时间误匹配其他 `2024-*` 章节。
+
 ## memoirs/entities.yaml 格式速查
 
 ```yaml
 people:
   老王:
-    aliases: [王博士, Wang]     # 同一人物的不同称呼
+    display: 老王
+    aliases: [王博士, Wang, Lao Wang]     # 同一人物的不同语言、简称、外号
 
 places:
   虹桥火车站:
-    aliases: [虹桥站, 上海虹桥]  # 同一地点的不同称呼
+    display: 虹桥火车站
+    aliases: [虹桥站, 上海虹桥, Hongqiao Railway Station]  # 同一地点的不同语言、简称
   虹桥火车站·二楼候车厅:          # FQN：父地点·子地点
     display: 二楼候车厅           # App 中显示的短名
     parent: 虹桥火车站            # 包含关系（非等价）
-    aliases: []
+    aliases: [候车厅, waiting hall]
 ```
+
+实体解析器会做大小写、全角半角、常见分隔符和空白归一化；父地点 alias 会自动与子地点 alias 组合。
+例如 `UF／Commuter Lot`、`University of Florida - commuter lot` 可解析到 `佛罗里达大学·通勤停车场`。
+若裸子地点 alias 同时命中多个地点（如多个 `library`），编译器会写入 `memoirs/.entity_resolution_report.json`，不会静默归入任意一个地点。

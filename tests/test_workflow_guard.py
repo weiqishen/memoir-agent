@@ -83,6 +83,23 @@ class WorkflowGuardTests(unittest.TestCase):
         if with_chapter:
             (chapters_dir / f"{timeline_date}_test.md").write_text("# chapter", encoding="utf-8")
 
+    def create_custom_period(
+        self,
+        periods_dir: pathlib.Path,
+        period: str,
+        timeline: str,
+        chapter_names: list[str],
+    ):
+        period_dir = periods_dir / period
+        raw_notes_dir = period_dir / "raw_notes"
+        chapters_dir = period_dir / "chapters"
+        raw_notes_dir.mkdir(parents=True)
+        chapters_dir.mkdir(parents=True)
+        (period_dir / "timeline.yaml").write_text(textwrap.dedent(timeline), encoding="utf-8")
+        (raw_notes_dir / "test.md").write_text("raw note", encoding="utf-8")
+        for chapter_name in chapter_names:
+            (chapters_dir / chapter_name).write_text("# chapter", encoding="utf-8")
+
     def run_guard_main(self, *args: str):
         argv_backup = sys.argv
         sys.argv = ["workflow_guard.py", *args]
@@ -143,6 +160,52 @@ class WorkflowGuardTests(unittest.TestCase):
             self.create_period(periods_dir, "US_PhD", with_raw_note=True, with_chapter=True)
 
             reasons = workflow_guard.evaluate("build", None)
+            self.assertEqual(reasons, [])
+
+    def test_build_does_not_match_year_only_entry_to_unrelated_exact_date_chapter(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            _, periods_dir = self.configure_workspace(root)
+            self.create_custom_period(
+                periods_dir,
+                "US_PhD",
+                """\
+                period: US_PhD
+                entries:
+                  - id: year_memory
+                    date: "2024"
+                    event: "Year Memory"
+                    summary: "Summary"
+                    related_files: ["raw_notes/test.md"]
+                """,
+                ["2024-09-other.md"],
+            )
+
+            reasons = workflow_guard.evaluate("build", None)
+
+            self.assertTrue(any("US_PhD:2024:Year Memory" in reason for reason in reasons))
+
+    def test_build_matches_fuzzy_time_entry_by_stable_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            _, periods_dir = self.configure_workspace(root)
+            self.create_custom_period(
+                periods_dir,
+                "US_PhD",
+                """\
+                period: US_PhD
+                entries:
+                  - id: first_semester
+                    date: "2024-Q3"
+                    event: "First Semester"
+                    summary: "Summary"
+                    related_files: ["raw_notes/test.md"]
+                """,
+                ["2024-Q3-first_semester.md"],
+            )
+
+            reasons = workflow_guard.evaluate("build", None)
+
             self.assertEqual(reasons, [])
 
     def test_force_bypass_writes_audit_log(self):

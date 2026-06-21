@@ -11,6 +11,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { MapPin, ChevronRight } from 'lucide-react';
 import type { ResolvedEntityIndex, PlacesMeta, Entry } from '../types';
 import type { Translations } from '../i18n';
+import { getEntryTimeLabel } from '../timeModel';
 
 interface Props {
   placesIndex: ResolvedEntityIndex;
@@ -108,7 +109,7 @@ export function PlacesView({ placesIndex, placesMeta, onSelectEntry, t }: Props)
                                       animate={{ opacity: 1, x: 0 }}
                                       transition={{ delay: i * 0.04 }}
                                       onClick={() => onSelectEntry(period, entry)}>
-                                      <span className="entry-date">{entry.date}</span>
+                                      <span className="entry-date">{getEntryTimeLabel(entry)}</span>
                                       <span className="entry-title">{entry.event}</span>
                                       <span className="entry-summary">{entry.summary}</span>
                                     </motion.li>
@@ -131,7 +132,7 @@ export function PlacesView({ placesIndex, placesMeta, onSelectEntry, t }: Props)
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ delay: i * 0.04 }}
                         onClick={() => onSelectEntry(period, entry)}>
-                        <span className="entry-date">{entry.date}</span>
+                        <span className="entry-date">{getEntryTimeLabel(entry)}</span>
                         <span className="entry-title">{entry.event}</span>
                         <span className="entry-summary">{entry.summary}</span>
                       </motion.li>

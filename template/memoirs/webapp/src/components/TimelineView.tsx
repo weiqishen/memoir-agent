@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion';
 import type { APIPayload, Entry, SelectedItem } from '../types';
 import type { Translations } from '../i18n';
+import { getEntryTimeLabel } from '../timeModel';
 
 interface Props {
   memoirs: APIPayload['memoirs'];
@@ -36,7 +37,7 @@ function EntryItem({ entry, periodKey, label, onSelect }: {
       transition={{ type: 'spring', stiffness: 400, damping: 30 }}
     >
       <div className="item-meta">
-        <span className="item-meta-text">{entry.date}</span>
+        <span className="item-meta-text">{getEntryTimeLabel(entry)}</span>
         <span className="item-dot">·</span>
         <span className="item-meta-text" style={periodKey ? { color: 'var(--accent)' } : {}}>
           {label}

@@ -19,9 +19,12 @@
     "scripts/install-python-deps.js",
     "requirements.txt",
     "template/",
+    "template/memoirs/webapp/dist/memoirs.manifest.json",
+    "template/memoirs/webapp/public/memoirs.manifest.json",
     "README.md"
   ],
   "scripts": {
+    "test": "node --test tests/*.cjs && python -m unittest discover -s tests -p \"test_*.py\"",
     "postinstall": "node -e \"const fs=require('fs');const p='scripts/install-python-deps.js';if(!fs.existsSync(p)){process.exit(0);}require('child_process').spawnSync(process.execPath,[p],{stdio:'inherit'});\""
   },
   "engines": {

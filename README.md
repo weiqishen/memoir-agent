@@ -131,25 +131,39 @@ my-memoirs/
 
 ---
 
+## 非精确时间
+
+`timeline.yaml` 的 `date` 可以写精确日、月份、年份、季度或约略年份，例如 `2024-09-18`、`2024-09`、`2024`、`2024-Q3`、`2024年第三季度`、`约2024年`。`memoir build` 会在 manifest 中生成规范化 `time` 元数据，用于排序、年份分组和展示。
+
+无法解析或缺少年份的时间（如裸 `9月`）会写入 `memoirs/.time_resolution_report.json`，供人工修正。粗粒度时间的章节文件名应包含稳定事件 slug 或 timeline `id`，例如 `2024-Q3-first_semester.md`。
+
+---
+
 ## memoirs/entities.yaml 配置
 
 ```yaml
 people:
   "老王":
     display: "老王"
+    aliases: ["王博士", "Wang"]
 
 places:
   "虹桥火车站":
     display: "虹桥火车站"
+    aliases: ["虹桥站", "Hongqiao Railway Station"]
   "虹桥火车站·二楼候车厅":
     display: "二楼候车厅"
     parent: "虹桥火车站"
+    aliases: ["候车厅", "waiting hall"]
 ```
 
 **FQN 规则（地点限定名）**：
 - 顶级地点直接写：`虹桥火车站`
 - 子地点必须带父前缀：`虹桥火车站·二楼候车厅`（用中点 `·` 分隔）
 - 禁止写裸名：`二楼候车厅`（不同地点都可能有此名，会产生歧义）
+- `aliases` 支持不同语言、简称、外号；编译器会归一化大小写、全角半角、常见分隔符。
+- 父地点 alias 会和子地点 alias 自动组合，例如 `UF／Commuter Lot` 可解析到 `佛罗里达大学·通勤停车场`。
+- 若 alias 同时命中多个实体，编译器会写入 `memoirs/.entity_resolution_report.json`，不会静默任选一个。
 
 ---
 

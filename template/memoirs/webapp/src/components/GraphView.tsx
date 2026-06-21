@@ -4,6 +4,7 @@ import ForceGraph2D from 'react-force-graph-2d';
 import type { APIPayload, GraphNode, SelectedItem, Theme, IndexRecord } from '../types';
 import { GRAPH_COLORS } from '../constants/theme';
 import type { Translations } from '../i18n';
+import { getEventRefFromGraphNode } from '../graphModel';
 
 interface Props {
   graph: APIPayload['graph'];
@@ -29,7 +30,8 @@ export function GraphView({ graph, eventLookup, theme, onNodeClick, t }: Props) 
 
   const handleNodeClick = useCallback((node: any) => {
     if (node.group === 2) {
-      const eventRecord = eventLookup[node.id];
+      const eventRef = getEventRefFromGraphNode(node as GraphNode);
+      const eventRecord = eventRef ? eventLookup[eventRef] : null;
       if (eventRecord) {
         onNodeClick({ type: 'event', period: eventRecord.period, entry: eventRecord.entry });
         return;

@@ -1,10 +1,24 @@
 // ─── Domain Types ────────────────────────────────────────────────────────────
 
 export interface Entry {
+  id?: string;
   date: string;
+  time?: TimeSpec;
   event: string;
   summary: string;
   related_files?: string[];
+}
+
+export type TimePrecision = 'day' | 'month' | 'quarter' | 'season' | 'year' | 'unknown';
+
+export interface TimeSpec {
+  value: string;
+  label: string;
+  precision: TimePrecision;
+  start?: string;
+  end?: string;
+  sort?: string;
+  approximate?: boolean;
 }
 
 export interface Timeline {
@@ -26,6 +40,7 @@ export interface GraphNode {
   id: string;
   name: string;
   group: number;   // 2=event  3=place  4=person
+  event_ref?: string;
   parent?: string;
   x?: number;
   y?: number;
@@ -34,6 +49,7 @@ export interface GraphNode {
 export interface GraphLink {
   source: string | GraphNode;
   target: string | GraphNode;
+  type?: 'mentions_person' | 'occurred_at' | 'contains' | string;
 }
 
 /** Hierarchy / display metadata for places */

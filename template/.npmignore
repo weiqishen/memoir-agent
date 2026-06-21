@@ -1,0 +1,16 @@
+# npm-only package filters for files under template/.
+# memoir init must not copy this file into user projects.
+**/__pycache__/
+**/*.pyc
+**/node_modules/
+**/node_modules/**
+memoirs/periods/
+memoirs/.draft_buffer.md
+memoirs/.workflow_guard.log
+memoirs/.entity_resolution_report.json
+memoirs/webapp/public/chapters/
+memoirs/webapp/public/assets/
+memoirs/webapp/dist/chapters/
+memoirs/entities.yaml
+!memoirs/webapp/public/memoirs.manifest.json
+!memoirs/webapp/dist/memoirs.manifest.json

@@ -6,20 +6,29 @@ import os
 import json
 import re
 import shutil
+import sys
 import yaml
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+if CURRENT_DIR not in sys.path:
+    sys.path.insert(0, CURRENT_DIR)
+
+from entity_resolver import EntityResolver, normalize_alias
+from time_spec import parse_time_spec
+
 WORKSPACE_DIR = os.path.abspath(os.path.join(CURRENT_DIR, "../../../../"))
 MEMOIRS_DIR = os.path.join(WORKSPACE_DIR, "memoirs")
 PERIODS_DIR = os.path.join(MEMOIRS_DIR, "periods")
 WEBAPP_PUBLIC_DIR = os.path.join(MEMOIRS_DIR, "webapp", "public")
 ALIAS_REGISTRY = os.path.join(MEMOIRS_DIR, "entities.yaml")
 MANIFEST_FILENAME = "memoirs.manifest.json"
+RESOLUTION_REPORT_FILENAME = ".entity_resolution_report.json"
+TIME_RESOLUTION_REPORT_FILENAME = ".time_resolution_report.json"
 
 
 def normalize_entity_key(value: str):
     """Normalize entity keys for case-insensitive and whitespace-tolerant matching."""
-    return re.sub(r"\s+", " ", str(value).strip()).casefold()
+    return normalize_alias(value)
 
 
 def load_entity_registry_document():
@@ -110,9 +119,49 @@ def parse_timeline(content: str):
 
 def build_event_ref(period: str, entry: dict):
     """Build a stable event reference used by graph and entity indexes."""
+    entry_id = str(entry.get("id", "")).strip()
+    if entry_id:
+        return f"{period}|{entry_id}"
     date_text = str(entry.get("date", "")).strip()
     event_text = str(entry.get("event", "")).strip()
     return f"{period}|{date_text}|{event_text}"
+
+
+def attach_time_metadata(period: str, entry: dict, report: dict):
+    """Attach normalized fuzzy-time metadata while preserving the authored date."""
+    date_text = str(entry.get("date", "")).strip()
+    if not date_text:
+        return
+
+    parsed = parse_time_spec(date_text)
+    if parsed.status == "resolved":
+        entry["time"] = parsed.to_manifest()
+        return
+
+    report["unresolved_times"].append(
+        {
+            "period": period,
+            "value": date_text,
+            "status": parsed.status,
+            "reason": parsed.reason,
+            "event_ref": build_event_ref(period, entry),
+        }
+    )
+
+
+def graph_event_id(event_ref: str) -> str:
+    """Build a graph-only event node id that cannot collide with entity ids."""
+    return f"event:{event_ref}"
+
+
+def graph_person_id(canonical: str) -> str:
+    """Build a graph-only person node id that cannot collide with place ids."""
+    return f"person:{canonical}"
+
+
+def graph_place_id(canonical: str) -> str:
+    """Build a graph-only place node id that cannot collide with person ids."""
+    return f"place:{canonical}"
 
 
 def export_chapter_assets(period: str, chapter_dir: str, chapter_content: str):
@@ -160,9 +209,23 @@ def build_api():
         shutil.rmtree(published_chapters_root)
 
     registry_doc = load_entity_registry_document()
-    people_map, places_map, people_map_normalized, places_map_normalized, places_meta = build_registry_maps(registry_doc)
+    resolver = EntityResolver(registry_doc)
+    places_meta = resolver.places_meta
     new_people_added = []
     new_places_added = []
+    resolution_report = {
+        "ambiguous_people": [],
+        "ambiguous_places": [],
+        "unknown_people_auto_added": [],
+        "unknown_places_auto_added": [],
+        "resolved_people_aliases": [],
+        "resolved_places_aliases": [],
+        "missing_raw_notes": [],
+        "invalid_entity_fields": [],
+    }
+    time_resolution_report = {
+        "unresolved_times": [],
+    }
 
     # ── 读取 period 数据 ──────────────────────────────────────────────────────
     all_data: dict = {}
@@ -176,6 +239,9 @@ def build_api():
         if os.path.exists(tl):
             with open(tl, "r", encoding="utf-8") as f:
                 pd["timeline"] = parse_timeline(f.read())
+            for entry in pd["timeline"].get("entries", []):
+                if isinstance(entry, dict):
+                    attach_time_metadata(item, entry, time_resolution_report)
 
         ch_dir = os.path.join(period_dir, "chapters")
         if os.path.exists(ch_dir):
@@ -212,10 +278,10 @@ def build_api():
             graph["nodes"].append(node)
             added_nodes.add(nid)
 
-    def _add_link(src: str, tgt: str, **kw):
-        key = (src, tgt)
+    def _add_link(src: str, tgt: str, link_type: str, **kw):
+        key = (src, tgt, link_type)
         if key not in added_links:
-            link = {"source": src, "target": tgt}
+            link = {"source": src, "target": tgt, "type": link_type}
             link.update(kw)
             graph["links"].append(link)
             added_links.add(key)
@@ -224,6 +290,22 @@ def build_api():
         existing = set(index.get(key, []))
         if event_ref not in existing:
             index.setdefault(key, []).append(event_ref)
+
+    def _entity_values(meta: dict, field: str, event_ref: str, raw_note: str):
+        value = meta.get(field, [])
+        if value in (None, ""):
+            return []
+        if isinstance(value, list):
+            return value
+        resolution_report["invalid_entity_fields"].append(
+            {
+                "field": field,
+                "value_type": type(value).__name__,
+                "raw_note": raw_note,
+                "event_ref": event_ref,
+            }
+        )
+        return []
 
     for period, data in all_data.items():
         if "entries" not in data.get("timeline", {}):
@@ -234,56 +316,69 @@ def build_api():
             if not event_name:
                 continue
             event_ref = build_event_ref(period, entry)
+            event_node_id = graph_event_id(event_ref)
 
-            _ensure_node(event_ref, group=2, name=event_name)
+            _ensure_node(event_node_id, group=2, name=event_name, extra={"event_ref": event_ref})
 
             for file_path in entry.get("related_files", []):
                 rn = os.path.basename(file_path)
+                if rn not in data["raw_notes"]:
+                    resolution_report["missing_raw_notes"].append(
+                        {"file": str(file_path), "period": period, "event_ref": event_ref}
+                    )
+                    continue
                 raw = data["raw_notes"].get(rn, "")
                 meta, _ = parse_frontmatter(raw)
 
                 # People → graph nodes (group 4) + links to event + index
-                for p in meta.get("people", []):
+                for p in _entity_values(meta, "people", event_ref, rn):
                     str_p = str(p).strip()
                     if not str_p:
                         continue
-                    canonical = people_map.get(
-                        str_p,
-                        people_map_normalized.get(normalize_entity_key(str_p), str_p),
-                    )
+                    resolved = resolver.resolve_person(str_p)
+                    if resolved.status == "ambiguous":
+                        resolution_report["ambiguous_people"].append(
+                            {"value": str_p, "candidates": resolved.candidates, "event_ref": event_ref}
+                        )
+                        continue
 
-                    if canonical not in people_map:
-                        people_map[canonical] = canonical
-                        people_map_normalized[normalize_entity_key(canonical)] = canonical
-                        people_map[str_p] = canonical
-                        people_map_normalized[normalize_entity_key(str_p)] = canonical
+                    canonical = resolved.canonical or str_p
+                    if resolved.canonical and canonical != str_p:
+                        resolution_report["resolved_people_aliases"].append(
+                            {"value": str_p, "canonical": canonical, "event_ref": event_ref}
+                        )
+
+                    if resolved.status == "unknown":
                         new_people_added.append(canonical)
+                        resolution_report["unknown_people_auto_added"].append(
+                            {"value": str_p, "canonical": canonical, "event_ref": event_ref}
+                        )
 
-                    _ensure_node(canonical, group=4)
+                    person_node_id = graph_person_id(canonical)
+                    _ensure_node(person_node_id, group=4, name=canonical)
                     # ← connects to event
-                    _add_link(canonical, event_ref)
+                    _add_link(person_node_id, event_node_id, "mentions_person")
                     _dedup_append_event_ref(people_index, canonical, event_ref)
 
                 # Places → graph + index
-                for pl in meta.get("places", []):
+                for pl in _entity_values(meta, "places", event_ref, rn):
                     str_pl = str(pl).strip()
                     if not str_pl:
                         continue
-                    canonical = places_map.get(
-                        str_pl,
-                        places_map_normalized.get(normalize_entity_key(str_pl), str_pl),
-                    )
+                    resolved = resolver.resolve_place(str_pl)
+                    if resolved.status == "ambiguous":
+                        resolution_report["ambiguous_places"].append(
+                            {"value": str_pl, "candidates": resolved.candidates, "event_ref": event_ref}
+                        )
+                        continue
 
-                    if canonical != str_pl:
-                        # Cache this variant in current run to prevent duplicate additions.
-                        places_map[str_pl] = canonical
-                        places_map_normalized[normalize_entity_key(str_pl)] = canonical
+                    canonical = resolved.canonical or str_pl
+                    if resolved.canonical and canonical != str_pl:
+                        resolution_report["resolved_places_aliases"].append(
+                            {"value": str_pl, "canonical": canonical, "event_ref": event_ref}
+                        )
 
-                    if canonical not in places_map:
-                        places_map[canonical] = canonical
-                        places_map_normalized[normalize_entity_key(canonical)] = canonical
-                        places_map[str_pl] = canonical
-                        places_map_normalized[normalize_entity_key(str_pl)] = canonical
+                    if resolved.status == "unknown":
                         if "·" in canonical:
                             # split by first dot only just in case
                             parts = canonical.split("·", 1)
@@ -291,24 +386,28 @@ def build_api():
                             places_meta[canonical] = {
                                 "display": display_name, "parent": parent_key}
                             # Optional: also track the parent if completely new
-                            if parent_key not in places_map:
-                                places_map[parent_key] = parent_key
+                            if parent_key not in registry_doc["places"]:
                                 new_places_added.append(parent_key)
                         new_places_added.append(canonical)
+                        resolution_report["unknown_places_auto_added"].append(
+                            {"value": str_pl, "canonical": canonical, "event_ref": event_ref}
+                        )
 
                     pm = places_meta.get(canonical, {})
                     parent = pm.get("parent")
+                    place_node_id = graph_place_id(canonical)
+                    place_name = pm.get("display", canonical)
 
                     if parent:
-                        # Sub-location: NOT a separate graph node.
-                        # Edge from parent place → event instead.
-                        _ensure_node(parent, group=3)
-                        # ← parent connected
-                        _add_link(parent, event_ref)
+                        parent_node_id = graph_place_id(parent)
+                        _ensure_node(parent_node_id, group=3, name=parent)
+                        _ensure_node(place_node_id, group=3, name=place_name, extra={"parent": parent})
+                        _add_link(parent_node_id, place_node_id, "contains")
+                        _add_link(place_node_id, event_node_id, "occurred_at")
                     else:
                         # Top-level place: graph node + link to event
-                        _ensure_node(canonical, group=3)
-                        _add_link(canonical, event_ref)      # ← place connected
+                        _ensure_node(place_node_id, group=3, name=place_name)
+                        _add_link(place_node_id, event_node_id, "occurred_at")
 
                     _dedup_append_event_ref(places_index, canonical, event_ref)
 
@@ -365,6 +464,14 @@ def build_api():
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(final_payload, f, ensure_ascii=False, indent=2)
 
+    report_path = os.path.join(MEMOIRS_DIR, RESOLUTION_REPORT_FILENAME)
+    with open(report_path, "w", encoding="utf-8") as f:
+        json.dump(resolution_report, f, ensure_ascii=False, indent=2)
+
+    time_report_path = os.path.join(MEMOIRS_DIR, TIME_RESOLUTION_REPORT_FILENAME)
+    with open(time_report_path, "w", encoding="utf-8") as f:
+        json.dump(time_resolution_report, f, ensure_ascii=False, indent=2)
+
     # Clean up legacy output to enforce the new single-manifest contract.
     legacy_out_path = os.path.join(WEBAPP_PUBLIC_DIR, "memoirs.json")
     if os.path.exists(legacy_out_path):
@@ -381,6 +488,8 @@ def build_api():
     print(f"  Places (child): {sub_places}")
     print(
         f"  Graph         : {len(graph['nodes'])} nodes, {len(graph['links'])} links")
+    if resolution_report["ambiguous_people"] or resolution_report["ambiguous_places"]:
+        print(f"  Alias report  : {report_path}")
 
 
 if __name__ == "__main__":

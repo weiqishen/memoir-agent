@@ -115,6 +115,10 @@ function copyDir(src, dst) {
   if (!fs.existsSync(src)) return;
   fs.mkdirSync(dst, { recursive: true });
   for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    if (entry.name === '.npmignore') {
+      // Template package filters are for npm only; user projects should not inherit them.
+      continue;
+    }
     const s = path.join(src, entry.name);
     const d = path.join(dst, entry.name);
     if (entry.isDirectory()) {
@@ -203,6 +207,19 @@ function cmdInit(args) {
     fs.mkdirSync(path.dirname(dstEntity), { recursive: true });
     fs.renameSync(tmplEntity, dstEntity);
     ok('memoirs/entities.yaml  (created from template)');
+  }
+
+  // npm does not reliably publish .gitignore files inside package templates,
+  // so the template ships a regular file and init materializes it for users.
+  const tmplGitignore = path.join(target, 'gitignore.template');
+  const dstGitignore = path.join(target, '.gitignore');
+  if (fs.existsSync(tmplGitignore)) {
+    if (!fs.existsSync(dstGitignore)) {
+      fs.renameSync(tmplGitignore, dstGitignore);
+      ok('.gitignore  (created from template)');
+    } else {
+      fs.unlinkSync(tmplGitignore);
+    }
   }
 
   // Ensure periods dir
