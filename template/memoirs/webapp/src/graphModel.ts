@@ -2,6 +2,7 @@ import type { GraphLink, GraphNode } from './types';
 
 const EVENT_PREFIX = 'event:';
 const EVENT_LINK_TYPES = new Set(['occurred_at', 'mentions_person']);
+const CONTAINS_LINK_TYPE = 'contains';
 
 function graphNodeId(value: string | GraphNode): string {
   return typeof value === 'object' ? value.id : value;
@@ -20,6 +21,23 @@ export function getEventRefFromGraphNode(node: GraphNode): string | null {
 /** Return event refs connected to an entity node through typed event links. */
 export function getConnectedEventRefs(tagNodeId: string, links: GraphLink[]): string[] {
   const eventRefs: string[] = [];
+  const connectedEntityIds = new Set([tagNodeId]);
+  let changed = true;
+
+  // Place nodes use directed contains links, so parent place clicks should
+  // include events attached to any descendant place.
+  while (changed) {
+    changed = false;
+    links.forEach(link => {
+      if (link.type !== CONTAINS_LINK_TYPE) return;
+      const sourceId = graphNodeId(link.source);
+      const targetId = graphNodeId(link.target);
+      if (connectedEntityIds.has(sourceId) && !connectedEntityIds.has(targetId)) {
+        connectedEntityIds.add(targetId);
+        changed = true;
+      }
+    });
+  }
 
   links.forEach(link => {
     if (!link.type || !EVENT_LINK_TYPES.has(link.type)) return;
@@ -27,8 +45,8 @@ export function getConnectedEventRefs(tagNodeId: string, links: GraphLink[]): st
     const sourceId = graphNodeId(link.source);
     const targetId = graphNodeId(link.target);
     const eventRef =
-      sourceId === tagNodeId ? toEventRef(targetId) :
-      targetId === tagNodeId ? toEventRef(sourceId) :
+      connectedEntityIds.has(sourceId) ? toEventRef(targetId) :
+      connectedEntityIds.has(targetId) ? toEventRef(sourceId) :
       null;
 
     if (eventRef && !eventRefs.includes(eventRef)) {

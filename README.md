@@ -139,6 +139,29 @@ my-memoirs/
 
 ---
 
+## 事件唯一标识符
+
+新笔记入库时，`--file-slug` 会自动写入 `timeline.yaml` 的 `id` 字段，并作为事件的稳定唯一标识符。后续修改 `event` 标题不会改变知识图谱、人物/地点索引和前端跳转使用的 `period|id` 引用。
+
+同一人生阶段（period）下 `id` 必须唯一；如果复用同一个 `file_slug`，入库脚本会拒绝追加。
+
+旧笔记可以用迁移脚本补齐 `id`：
+
+```bash
+python .agents/skills/biographer-skill/tools/migrate_timeline_ids.py --dry-run
+python .agents/skills/biographer-skill/tools/migrate_timeline_ids.py --write
+```
+
+脚本会从 `related_files` 的 raw note 文件名生成 `id`，并输出 `memoirs/.timeline_id_migration_report.json`，记录 `old_ref -> new_ref`、重复项和需要人工处理的条目。
+
+---
+
+## 地点标签粒度
+
+地点索引支持“城市/地区 -> 场所 -> 子地点”的层级。多个子地点可以同时作为事件地点存在，例如同一篇笔记可同时标 `橡树购物中心·停车场` 和 `橡树购物中心·餐厅`。子地点必须使用 FQN（`父地点·子地点`），避免 `停车场`、`餐厅` 这类裸名造成歧义。更大区域归属不会把场所塌缩掉，例如 `橡树购物中心 parent: 甘村` 仍会保留 `橡树购物中心` 作为事件地点，同时可通过父级关系归入 `甘村`。
+
+---
+
 ## memoirs/entities.yaml 配置
 
 ```yaml

@@ -307,6 +307,88 @@ def build_api():
         )
         return []
 
+    def _resolve_place_values(place_values: list, event_ref: str):
+        resolved_places: list[dict] = []
+        for pl in place_values:
+            str_pl = str(pl).strip()
+            if not str_pl:
+                continue
+            resolved = resolver.resolve_place(str_pl)
+            if resolved.status == "ambiguous":
+                resolution_report["ambiguous_places"].append(
+                    {"value": str_pl, "candidates": resolved.candidates, "event_ref": event_ref}
+                )
+                continue
+
+            canonical = resolved.canonical or str_pl
+            if resolved.canonical and canonical != str_pl:
+                resolution_report["resolved_places_aliases"].append(
+                    {"value": str_pl, "canonical": canonical, "event_ref": event_ref}
+                )
+
+            if resolved.status == "unknown":
+                if "·" in canonical:
+                    # split by first dot only just in case
+                    parent_key, display_name = canonical.split("·", 1)
+                    places_meta[canonical] = {
+                        "display": display_name, "parent": parent_key}
+                    # Optional: also track the parent if completely new
+                    if parent_key not in registry_doc["places"]:
+                        new_places_added.append(parent_key)
+                new_places_added.append(canonical)
+                resolution_report["unknown_places_auto_added"].append(
+                    {"value": str_pl, "canonical": canonical, "event_ref": event_ref}
+                )
+
+            resolved_places.append({"value": str_pl, "canonical": canonical})
+        return resolved_places
+
+    def _dedupe_resolved_places(resolved_places: list[dict]):
+        """Keep distinct place tags in the order extracted from the note."""
+        final_places: list[str] = []
+        for item in resolved_places:
+            canonical = item["canonical"]
+            if canonical not in final_places:
+                final_places.append(canonical)
+        return final_places
+
+    def _place_parent(canonical: str):
+        parent = str(places_meta.get(canonical, {}).get("parent") or "").strip()
+        return parent if parent and parent != canonical else ""
+
+    def _place_display(canonical: str):
+        return places_meta.get(canonical, {}).get("display", canonical)
+
+    def _place_lineage(canonical: str):
+        """Return place plus ancestors, stopping before cycles repeat."""
+        lineage: list[str] = []
+        seen: set[str] = set()
+        current = canonical
+        while current and current not in seen:
+            lineage.append(current)
+            seen.add(current)
+            current = _place_parent(current)
+        return lineage
+
+    def _ensure_place_node(canonical: str):
+        parent = _place_parent(canonical)
+        extra = {"parent": parent} if parent else None
+        _ensure_node(graph_place_id(canonical), group=3, name=_place_display(canonical), extra=extra)
+
+    def _ensure_place_hierarchy(canonical: str):
+        lineage = _place_lineage(canonical)
+        for place in reversed(lineage):
+            _ensure_place_node(place)
+        for child, parent in zip(lineage, lineage[1:]):
+            _add_link(graph_place_id(parent), graph_place_id(child), "contains")
+        return lineage
+
+    def _index_place(canonical: str, event_node_id: str, event_ref: str):
+        lineage = _ensure_place_hierarchy(canonical)
+        _add_link(graph_place_id(canonical), event_node_id, "occurred_at")
+        for place in lineage:
+            _dedup_append_event_ref(places_index, place, event_ref)
+
     for period, data in all_data.items():
         if "entries" not in data.get("timeline", {}):
             continue
@@ -360,60 +442,12 @@ def build_api():
                     _add_link(person_node_id, event_node_id, "mentions_person")
                     _dedup_append_event_ref(people_index, canonical, event_ref)
 
-                # Places → graph + index
-                for pl in _entity_values(meta, "places", event_ref, rn):
-                    str_pl = str(pl).strip()
-                    if not str_pl:
-                        continue
-                    resolved = resolver.resolve_place(str_pl)
-                    if resolved.status == "ambiguous":
-                        resolution_report["ambiguous_places"].append(
-                            {"value": str_pl, "candidates": resolved.candidates, "event_ref": event_ref}
-                        )
-                        continue
-
-                    canonical = resolved.canonical or str_pl
-                    if resolved.canonical and canonical != str_pl:
-                        resolution_report["resolved_places_aliases"].append(
-                            {"value": str_pl, "canonical": canonical, "event_ref": event_ref}
-                        )
-
-                    if resolved.status == "unknown":
-                        if "·" in canonical:
-                            # split by first dot only just in case
-                            parts = canonical.split("·", 1)
-                            parent_key, display_name = parts[0], parts[1]
-                            places_meta[canonical] = {
-                                "display": display_name, "parent": parent_key}
-                            # Optional: also track the parent if completely new
-                            if parent_key not in registry_doc["places"]:
-                                new_places_added.append(parent_key)
-                        new_places_added.append(canonical)
-                        resolution_report["unknown_places_auto_added"].append(
-                            {"value": str_pl, "canonical": canonical, "event_ref": event_ref}
-                        )
-
-                    pm = places_meta.get(canonical, {})
-                    parent = pm.get("parent")
-                    place_node_id = graph_place_id(canonical)
-                    place_name = pm.get("display", canonical)
-
-                    if parent:
-                        parent_node_id = graph_place_id(parent)
-                        _ensure_node(parent_node_id, group=3, name=parent)
-                        _ensure_node(place_node_id, group=3, name=place_name, extra={"parent": parent})
-                        _add_link(parent_node_id, place_node_id, "contains")
-                        _add_link(place_node_id, event_node_id, "occurred_at")
-                    else:
-                        # Top-level place: graph node + link to event
-                        _ensure_node(place_node_id, group=3, name=place_name)
-                        _add_link(place_node_id, event_node_id, "occurred_at")
-
-                    _dedup_append_event_ref(places_index, canonical, event_ref)
-
-                    # Roll up sub-location entries to parent
-                    if parent:
-                        _dedup_append_event_ref(places_index, parent, event_ref)
+                # Places → graph + index. Keep explicit subplaces while the
+                # index also rolls them up to their parent venue.
+                place_values = _entity_values(meta, "places", event_ref, rn)
+                resolved_places = _resolve_place_values(place_values, event_ref)
+                for canonical in _dedupe_resolved_places(resolved_places):
+                    _index_place(canonical, event_node_id, event_ref)
 
     # ── 自动补全 entities.yaml ───────────────────────────────────────────────
     if new_people_added or new_places_added:

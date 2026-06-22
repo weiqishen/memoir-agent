@@ -3,6 +3,7 @@
 **/node_modules/
 .codegraph/
 template/memoirs/periods/
+template/memoirs/.timeline_id_migration_report.json
 template/memoirs/webapp/public/chapters/
 template/memoirs/webapp/public/assets/
 template/memoirs/webapp/dist/chapters/

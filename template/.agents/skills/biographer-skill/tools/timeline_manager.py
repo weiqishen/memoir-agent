@@ -6,6 +6,7 @@ import shutil
 import re
 import mimetypes
 import sys
+import yaml
 from urllib.parse import urlparse
 from urllib.request import urlopen
 
@@ -50,6 +51,26 @@ def build_asset_filename(date, source, headers=None):
     return f"{sanitize_date_for_filename(date)}_{stem or 'asset'}{ext}"
 
 
+def build_event_id(file_slug):
+    """Use the raw-note slug as the stable event id for new timeline entries."""
+    return str(file_slug or "").strip()
+
+
+def timeline_has_event_id(timeline_path, event_id):
+    """Return True when the period timeline already contains the stable event id."""
+    if not os.path.exists(timeline_path):
+        return False
+    try:
+        with open(timeline_path, "r", encoding="utf-8") as f:
+            timeline = yaml.safe_load(f) or {}
+    except yaml.YAMLError:
+        return False
+    entries = timeline.get("entries", [])
+    if not isinstance(entries, list):
+        return False
+    return any(str(entry.get("id", "")).strip() == event_id for entry in entries if isinstance(entry, dict))
+
+
 def copy_markdown_asset(filepath, date, assets_dir):
     """Copy or download a Markdown asset and return the rewritten relative path."""
     if os.path.isabs(filepath) and os.path.exists(filepath):
@@ -84,8 +105,17 @@ def safe_append_to_timeline(period, date, event, summary, file_slug):
     # without needing external dependencies like ruamel.yaml or pyyaml.
     with open(timeline_path, "r", encoding="utf-8") as f:
         content = f.read()
-        
-    entry = f"""  - date: "{date}"
+
+    event_id = build_event_id(file_slug)
+    if not event_id:
+        print("Error: file_slug is required to build a stable event id.")
+        return False
+    if timeline_has_event_id(timeline_path, event_id):
+        print(f'Error: Duplicate timeline id "{event_id}" in {period}/timeline.yaml')
+        return False
+
+    entry = f"""  - id: "{event_id}"
+    date: "{date}"
     event: "{event}"
     summary: "{summary}"
     related_files: ["raw_notes/{file_slug}.md"]
@@ -95,7 +125,7 @@ def safe_append_to_timeline(period, date, event, summary, file_slug):
     if "entries:" in content:
         with open(timeline_path, "a", encoding="utf-8") as f:
             f.write(entry)
-        print(f"✅ Successfully appended to {period}/timeline.yaml")
+        print(f"Successfully appended to {period}/timeline.yaml")
         return True
     else:
         print(f"Error: Unrecognized timeline format in {timeline_path}")

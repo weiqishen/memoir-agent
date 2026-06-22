@@ -42,3 +42,16 @@ test('getConnectedEventRefs follows typed event relationship links only', () => 
     ['US_PhD|2024-10|Reverse']
   );
 });
+
+test('getConnectedEventRefs rolls place clicks down through contained subplaces', () => {
+  const links: GraphLink[] = [
+    { source: 'place:甘村', target: 'place:橡树购物中心', type: 'contains' },
+    { source: 'place:橡树购物中心', target: 'place:橡树购物中心·停车场', type: 'contains' },
+    { source: 'place:橡树购物中心·停车场', target: 'event:US_PhD|2024-08|Parking', type: 'occurred_at' },
+  ];
+
+  assert.deepEqual(
+    getConnectedEventRefs('place:甘村', links),
+    ['US_PhD|2024-08|Parking']
+  );
+});

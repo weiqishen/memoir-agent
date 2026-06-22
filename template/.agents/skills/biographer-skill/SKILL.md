@@ -66,6 +66,23 @@ memoirs/
 
 粗粒度时间的章节文件名应包含稳定事件 slug 或 timeline `id`，例如 `2024-Q3-first_semester.md`，避免 `2024` 这类年份级时间误匹配其他 `2024-*` 章节。
 
+## 事件唯一标识符
+
+新入库笔记的唯一标识符来自 `--file-slug`。`timeline_manager.py` 会写入 `id: "<file-slug>"`，编译器和前端会优先使用 `period|id` 作为事件引用。`event` 标题只是展示文案，后续可以修改，不应作为身份键。同一 period 下不得复用同一个 `file-slug`。
+
+旧笔记可使用迁移脚本补齐 `id`：
+
+```bash
+python .agents/skills/biographer-skill/tools/migrate_timeline_ids.py --dry-run
+python .agents/skills/biographer-skill/tools/migrate_timeline_ids.py --write
+```
+
+脚本会从 `related_files` 的 raw note 文件名生成 `id`，并把 `old_ref -> new_ref` 写入 `memoirs/.timeline_id_migration_report.json`。
+
+## 地点标签粒度
+
+地点标签支持“城市/地区 -> 场所 -> 子地点”层级。多个子地点可以同时作为事件地点存在，比如一篇笔记可同时涉及商场停车场和商场餐厅。子地点必须写成 `父地点·子地点` FQN，不能写裸名。更大区域归属不应把场所塌缩掉，例如 `橡树购物中心 parent: 甘村` 仍保留 `橡树购物中心` 作为事件地点，同时可通过父级关系归入 `甘村`。
+
 ## memoirs/entities.yaml 格式速查
 
 ```yaml

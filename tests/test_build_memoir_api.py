@@ -403,6 +403,143 @@ class BuildMemoirApiTests(unittest.TestCase):
             self.assertEqual(manifest["places_index"]["佛罗里达大学"], [event_ref])
             self.assertEqual(manifest["places_index"]["佛罗里达大学·通勤停车场"], [event_ref])
 
+    def test_build_api_keeps_multiple_subplaces_for_one_note(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            memoirs_dir, periods_dir, raw_notes_dir, public_dir = self.configure_workspace(root)
+            (memoirs_dir / "entities.yaml").write_text(textwrap.dedent("""\
+                people: {}
+                places:
+                  橡树购物中心:
+                    aliases: [Oaks Mall]
+                  橡树购物中心·停车场:
+                    display: 停车场
+                    parent: 橡树购物中心
+                    aliases: [parking lot]
+                  橡树购物中心·餐厅:
+                    display: 餐厅
+                    parent: 橡树购物中心
+                    aliases: [restaurant]
+            """), encoding="utf-8")
+
+            self.write_fixture(
+                periods_dir,
+                raw_notes_dir,
+                textwrap.dedent("""\
+                    ---
+                    date: "2024-08-15"
+                    people: []
+                    places: ["Oaks Mall", "Oaks Mall·parking lot", "Oaks Mall·restaurant"]
+                    ---
+                    body
+                """),
+            )
+
+            build_memoir_api.build_api()
+
+            manifest = json.loads((public_dir / "memoirs.manifest.json").read_text(encoding="utf-8"))
+            event_ref = "US_PhD|2024-09|Test Event"
+            node_ids = {node["id"] for node in manifest["graph"]["nodes"]}
+            links = {(link["source"], link["target"], link["type"]) for link in manifest["graph"]["links"]}
+
+            self.assertEqual(manifest["places_index"]["橡树购物中心"], [event_ref])
+            self.assertEqual(manifest["places_index"]["橡树购物中心·停车场"], [event_ref])
+            self.assertEqual(manifest["places_index"]["橡树购物中心·餐厅"], [event_ref])
+            self.assertIn("place:橡树购物中心", node_ids)
+            self.assertIn(("place:橡树购物中心·停车场", f"event:{event_ref}", "occurred_at"), links)
+            self.assertIn(("place:橡树购物中心·餐厅", f"event:{event_ref}", "occurred_at"), links)
+
+    def test_build_api_does_not_collapse_venue_to_area_parent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            memoirs_dir, periods_dir, raw_notes_dir, public_dir = self.configure_workspace(root)
+            (memoirs_dir / "entities.yaml").write_text(textwrap.dedent("""\
+                people: {}
+                places:
+                  甘村:
+                    aliases: [Gan Village]
+                  橡树购物中心:
+                    parent: 甘村
+                    aliases: [Oaks Mall]
+                  橡树购物中心·停车场:
+                    display: 停车场
+                    parent: 橡树购物中心
+                    aliases: [parking lot]
+                  橡树购物中心·餐厅:
+                    display: 餐厅
+                    parent: 橡树购物中心
+                    aliases: [restaurant]
+            """), encoding="utf-8")
+
+            self.write_fixture(
+                periods_dir,
+                raw_notes_dir,
+                textwrap.dedent("""\
+                    ---
+                    date: "2024-08-15"
+                    people: []
+                    places: ["Gan Village", "Oaks Mall", "Oaks Mall·parking lot", "Oaks Mall·restaurant"]
+                    ---
+                    body
+                """),
+            )
+
+            build_memoir_api.build_api()
+
+            manifest = json.loads((public_dir / "memoirs.manifest.json").read_text(encoding="utf-8"))
+            event_ref = "US_PhD|2024-09|Test Event"
+            links = {(link["source"], link["target"], link["type"]) for link in manifest["graph"]["links"]}
+
+            self.assertEqual(manifest["places_index"]["甘村"], [event_ref])
+            self.assertEqual(manifest["places_index"]["橡树购物中心"], [event_ref])
+            self.assertEqual(manifest["places_index"]["橡树购物中心·停车场"], [event_ref])
+            self.assertEqual(manifest["places_index"]["橡树购物中心·餐厅"], [event_ref])
+            self.assertIn(("place:橡树购物中心", f"event:{event_ref}", "occurred_at"), links)
+
+    def test_build_api_rolls_subplace_up_to_all_place_ancestors(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            memoirs_dir, periods_dir, raw_notes_dir, public_dir = self.configure_workspace(root)
+            (memoirs_dir / "entities.yaml").write_text(textwrap.dedent("""\
+                people: {}
+                places:
+                  甘村:
+                    aliases: [Gan Village]
+                  橡树购物中心:
+                    parent: 甘村
+                    aliases: [Oaks Mall]
+                  橡树购物中心·停车场:
+                    display: 停车场
+                    parent: 橡树购物中心
+                    aliases: [parking lot]
+            """), encoding="utf-8")
+
+            self.write_fixture(
+                periods_dir,
+                raw_notes_dir,
+                textwrap.dedent("""\
+                    ---
+                    date: "2024-08-15"
+                    people: []
+                    places: ["Oaks Mall·parking lot"]
+                    ---
+                    body
+                """),
+            )
+
+            build_memoir_api.build_api()
+
+            manifest = json.loads((public_dir / "memoirs.manifest.json").read_text(encoding="utf-8"))
+            event_ref = "US_PhD|2024-09|Test Event"
+            links = {(link["source"], link["target"], link["type"]) for link in manifest["graph"]["links"]}
+
+            self.assertEqual(manifest["places_index"]["甘村"], [event_ref])
+            self.assertEqual(manifest["places_index"]["橡树购物中心"], [event_ref])
+            self.assertEqual(manifest["places_index"]["橡树购物中心·停车场"], [event_ref])
+            self.assertIn(("place:甘村", "place:橡树购物中心", "contains"), links)
+            self.assertIn(("place:橡树购物中心", "place:橡树购物中心·停车场", "contains"), links)
+            self.assertIn(("place:橡树购物中心·停车场", f"event:{event_ref}", "occurred_at"), links)
+
     def test_build_api_reports_missing_raw_note_and_invalid_entity_fields(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)

@@ -3,6 +3,7 @@ memoirs/periods/
 memoirs/.draft_buffer.md
 memoirs/.workflow_guard.log
 memoirs/.entity_resolution_report.json
+memoirs/.timeline_id_migration_report.json
 memoirs/webapp/public/memoirs.manifest.json
 memoirs/webapp/public/chapters/
 memoirs/webapp/public/assets/

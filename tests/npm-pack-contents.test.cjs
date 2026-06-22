@@ -16,6 +16,7 @@ test('npm package includes empty manifest files and excludes Python caches', () 
   assert.ok(files.includes('template/memoirs/webapp/public/memoirs.manifest.json'));
   assert.ok(files.includes('template/gitignore.template'));
   assert.ok(files.includes('template/.agents/skills/biographer-skill/tools/entity_resolver.py'));
+  assert.ok(files.includes('template/.agents/skills/biographer-skill/tools/migrate_timeline_ids.py'));
   assert.ok(files.includes('template/.agents/skills/biographer-skill/tools/time_spec.py'));
   assert.ok(files.includes('template/memoirs/webapp/src/graphModel.ts'));
   assert.ok(files.includes('template/memoirs/webapp/src/graphModel.test.ts'));
