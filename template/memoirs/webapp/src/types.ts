@@ -28,7 +28,10 @@ export interface Timeline {
 
 export interface Chapter {
   filename: string;
-  path: string;
+  /** Embedded chapter markdown (schema v2 manifests). */
+  content?: string;
+  /** Legacy schema v1 fetch path; ignored when content is present. */
+  path?: string;
 }
 
 export interface MemoirData {
@@ -59,12 +62,29 @@ export type EntityEventIndex = Record<string, EventRef[]>;
 export type IndexRecord = { period: string; entry: Entry };
 export type ResolvedEntityIndex = Record<string, IndexRecord[]>;
 
+export interface GraphIssues {
+  graph?: {
+    duplicate_event_refs?: string[];
+    place_cycles?: string[][];
+    missing_parents?: { place: string; inferred_parent: string; source?: string }[];
+    unknown_entities?: unknown[];
+    ambiguous_entities?: unknown[];
+    missing_raw_notes?: unknown[];
+  };
+  time?: { unresolved?: unknown[] };
+  entities?: { invalid_fields?: unknown[]; coerced_fields?: unknown[] };
+  chapter_assets?: { missing?: unknown[] };
+}
+
 export interface APIPayload {
+  schema_version?: number;
+  tool_version?: string;
   memoirs:      Record<string, MemoirData>;
   graph:        { nodes: GraphNode[]; links: GraphLink[] };
   people_index: EntityEventIndex;
   places_index: EntityEventIndex;
   places_meta:  PlacesMeta;
+  issues?:      GraphIssues;
 }
 
 // ─── UI Types ─────────────────────────────────────────────────────────────────

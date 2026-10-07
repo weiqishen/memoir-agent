@@ -32,8 +32,13 @@ def list_period_dirs() -> list[str]:
 def load_yaml(path: str) -> dict[str, Any]:
     if not os.path.exists(path):
         return {}
-    with open(path, "r", encoding="utf-8") as file:
-        data = yaml.safe_load(file) or {}
+    try:
+        with open(path, "r", encoding="utf-8") as file:
+            data = yaml.safe_load(file) or {}
+    except yaml.YAMLError:
+        # A malformed timeline is reported loudly by build_memoir_api; the guard
+        # must not crash with a traceback when it inspects broken input.
+        return {}
     if isinstance(data, dict):
         return data
     return {}

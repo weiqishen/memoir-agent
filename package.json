@@ -1,6 +1,6 @@
 {
   "name": "memoir-agent",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "AI-powered personal memoir archival system — Claude Code skill + pywebview desktop viewer",
   "keywords": ["memoir", "claude-code", "biographer", "ai", "pywebview", "agent"],
   "repository": {
@@ -13,18 +13,20 @@
   },
   "files": [
     "cli.js",
-    "lib/build-asset-sync.js",
+    "lib/tooling-sync.js",
     "lib/npm-runner.js",
     "lib/update-source.js",
+    "lib/python-detector.js",
+    "lib/upgrader.js",
+    "lib/export-bundle.js",
+    "migrations/",
     "scripts/install-python-deps.js",
     "requirements.txt",
     "template/",
-    "template/memoirs/webapp/dist/memoirs.manifest.json",
-    "template/memoirs/webapp/public/memoirs.manifest.json",
     "README.md"
   ],
   "scripts": {
-    "test": "node --test tests/*.cjs && python -m unittest discover -s tests -p \"test_*.py\"",
+    "test": "node --test tests/*.cjs && node scripts/run-python-tests.js && node scripts/run-webapp-tests.js",
     "postinstall": "node -e \"const fs=require('fs');const p='scripts/install-python-deps.js';if(!fs.existsSync(p)){process.exit(0);}require('child_process').spawnSync(process.execPath,[p],{stdio:'inherit'});\""
   },
   "engines": {

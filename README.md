@@ -13,6 +13,7 @@
 | **知识图谱** | 自动构建 人物 ↔ 事件 ↔ 地点 关系网络 |
 | **层级地点视图** | FQN（完整限定名）地点树，支持 `父地点·子地点` 嵌套 |
 | **桌面查看器** | 基于 pywebview 的无边框窗口，支持亮色/暗色主题 |
+| **浏览体验** | 全文搜索（含章节正文与人物/地点）、hash 深链接、键盘导航、图片灯箱与章节目录、图谱过滤/高亮 |
 | **斜杠命令工作流** | `/recall` `/listen` `/commit` `/memoir-build` 全套命令 |
 
 ---
@@ -64,12 +65,18 @@ memoir init
 # 3. 打开 Claude Code，使用 /recall 归档第一条记忆
 #    Claude 会自动调用工具写入 raw note 和 timeline
 
-# 4. 编译数据
+# 4. 在 Claude Code 中执行 /memoir-build，把原始笔记合成为散文体章节
+#    （若使用 /listen 连续倾诉，先用 /commit 收尾草稿）
+
+# 5. 编译数据（流程守卫会检查所有 timeline 条目是否都已合成章节）
 memoir build
 
-# 5. 打开桌面查看器
+# 6. 打开桌面查看器
 memoir open
 ```
+
+> `memoir build` 默认会阻断跳步：草稿未 `/commit`、或有条目尚未 `/memoir-build` 时构建失败。
+> 确需跳过时使用 `memoir build --force`，并会写入 `memoirs/.workflow_guard.log` 审计记录。
 
 ---
 
@@ -77,9 +84,12 @@ memoir open
 
 ```
 memoir init [dir]   初始化项目（当前目录或指定目录）
-memoir build [--force] 编译 raw_notes → memoirs.manifest.json + chapters
-memoir open         启动 pywebview 桌面查看器
-memoir update       从 GitHub 默认分支更新 + 同步工具文件
+memoir build [--force] 编译 periods/ → memoirs/.cache/memoirs.manifest.json
+memoir open [--no-build] 启动桌面查看器（默认自动重建过期数据）
+memoir doctor [--json] 项目体检（布局 / YAML / id / 重复引用 / 环）
+memoir export <dir> 导出可移植静态包（app + manifest + media，唯一允许复制的路径）
+memoir update [--dry-run] [--yes] [--tooling-only]
+                    一键升级：安装 → 数据迁移 → 同步工具 → 重建
 memoir sync         仅同步工具文件（不升级 npm 包）
 memoir --version    查看版本
 memoir --help       查看帮助
@@ -98,7 +108,7 @@ memoir --help       查看帮助
 | `/commit` | 结束倾听，将草稿区内容一次性归档 |
 | `/memoir-build` | 合成指定阶段的回忆录章节（散文体） |
 | `/memoir-correct` | 纠正历史错误的笔记或章节（无痕覆盖） |
-| `/build` | 编译 memoirs.manifest.json + chapters 并同步到查看器 |
+| `/build` | 编译 manifest（.cache 单一派生文件）供查看器使用 |
 
 ---
 
@@ -110,24 +120,30 @@ my-memoirs/
 │   ├── skills/biographer-skill/      # Claude Code 技能（AI 提取引擎）
 │   │   ├── SKILL.md
 │   │   ├── prompts/                  # parsing / synthesis / correction 提示词
-│   │   └── tools/                   # build_memoir_api.py, timeline_manager.py
-│   └── workflows/                   # 斜杠命令定义
+│   │   └── tools/                    # build_memoir_api.py, timeline_manager.py, doctor.py
+│   └── workflows/                    # 斜杠命令定义
 ├── memoirs/
-│   ├── periods/                      # 【个人数据】各人生阶段
+│   ├── periods/                      # 【唯一数据源】各人生阶段
 │   │   └── [阶段名]/
 │   │       ├── timeline.yaml         # 结构化时间线
 │   │       ├── raw_notes/            # 原始记忆片段（Markdown）
-│   │       └── chapters/            # 合成章节（散文体）
+│   │       ├── chapters/             # 合成章节（散文体）
+│   │       └── assets/               # 入库图片（唯一副本）
+│   ├── .cache/                       # 编译派生文件（可随时删除重建，已 gitignore）
+│   │   └── memoirs.manifest.json
+│   ├── .project.json                 # 项目 schema / 工具版本元数据
+│   ├── entities.yaml                 # 【个人数据】人物 & 地点注册表
 │   └── webapp/
 │       ├── src/                      # React 前端源码
-│       └── dist/                     # 预编译静态文件（查看器直接使用）
-│   ├── entities.yaml                 # 【个人数据】人物 & 地点注册表
+│       └── dist/                     # 预编译 app shell（查看器直接使用，不含数据）
 ├── open_memoirs.pyw                  # 桌面查看器启动脚本
 └── .gitignore                        # 已排除 periods/ 和 memoirs/entities.yaml
 ```
 
 > **重要**：`memoirs/periods/` 和 `memoirs/entities.yaml` 包含个人数据，
 > 已在 `.gitignore` 中排除，**请勿提交到公开仓库**。
+> 数据只存一份：查看器通过本地服务器把 `/media/<period>/<file>` 直接映射到
+> `periods/<period>/assets/`，不会在 webapp 目录中产生任何副本。
 
 ---
 
@@ -190,28 +206,50 @@ places:
 
 ---
 
-## 更新
+## 更新与升级
 
 ```bash
-# 从 GitHub 默认分支拉取最新代码并同步技能/工作流/预编译 UI
+# 一键升级：安装最新包 → 数据迁移 → 同步工具 → 重建 manifest
 memoir update
 
-# 仅同步工具文件（适用于已手动 npm install 新版本的情况）
+# 先看会执行哪些迁移，零副作用
+memoir update --dry-run
+
+# 只同步工具文件（不安装新包、不跑迁移）
 memoir sync
 ```
 
-`memoir update` 固定从 GitHub tarball 更新，不再查询 npm registry 版本。
+`memoir update` 固定从 GitHub tarball 更新，不再查询 npm registry 版本。它会：
 
-`memoir build` 现在内置流程守卫：
-- 默认会阻断跳步（例如草稿未 commit、timeline 尚未全部生成章节）。
-- 使用 `memoir build --force` 可绕过阻断，并写入 `memoirs/.workflow_guard.log` 审计记录。
+1. 自动定位项目根目录（可在子目录执行）；
+2. 读取 `memoirs/.project.json` 判断当前 schema，列出需要的迁移；
+3. 安装新包、同步 `.agents/`、`webapp/src/`、`webapp/dist/` app shell 与图标；
+4. 依次执行幂等数据迁移（补 `id`、清理旧 public/dist 重复数据）；
+5. 重建 `.cache` manifest，并把 schema 版本写回 `.project.json`。
+
+数据安全：不做自动备份（可用 `memoir update --dry-run` 预演）；迁移全部幂等、写入原子化，
+中断后重新执行 `memoir update` 即可续跑。升级后建议运行：
+
+```bash
+memoir doctor        # 检查布局 / YAML / id / 重复引用 / 地点环
+```
 
 `update` / `sync` 会覆盖以下目录：
 - `.agents/` （技能 + 工作流）
 - `memoirs/webapp/src/`（前端源码）
-- `memoirs/webapp/dist/`（预编译文件，**跳过** `memoirs.manifest.json` 和 `chapters/`）
+- `memoirs/webapp/dist/`（预编译 app shell，**跳过**任何数据文件）
+- `memoirs/webapp/public/`（仅图标）
 
-**绝不覆盖**：`memoirs/entities.yaml` · `memoirs/periods/` · `.gitignore`
+**绝不覆盖**：`memoirs/entities.yaml` · `memoirs/periods/` · `memoirs/.cache/` · `.gitignore`
+
+### 导出静态包
+
+```bash
+memoir export ./site
+```
+
+生成包含 app shell + `memoirs.manifest.json` + `media/` 的独立静态站点，
+可以直接用任意静态服务器托管。这是项目中唯一会复制数据副本的操作（用于分发）。
 
 ---
 

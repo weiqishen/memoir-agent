@@ -14,12 +14,13 @@
 const { spawnSync, spawn } = require('child_process');
 const fs   = require('fs');
 const path = require('path');
-const os   = require('os');
 
 const PKG = require('./package.json');
-const { syncPublicAssetsToDist, syncPublicChaptersToDist } = require('./lib/build-asset-sync');
+const { syncTooling } = require('./lib/tooling-sync');
 const { runNpm } = require('./lib/npm-runner');
 const { getGithubUpdateInstallSpec } = require('./lib/update-source');
+const { detectPython, detectPythonw } = require('./lib/python-detector');
+const { upgradeProject, detectSchema, pendingMigrations, TARGET_SCHEMA } = require('./lib/upgrader');
 
 // ── ANSI ────────────────────────────────────────────────────────────────────
 const G = '\x1b[32m', Y = '\x1b[33m', R = '\x1b[31m';
@@ -30,66 +31,7 @@ const fail = (s) => { console.error(`${R}✗${RST}  ${s}`); process.exit(1); };
 const info = (s) => console.log(`${C}→${RST}  ${s}`);
 
 // ── Python detection ────────────────────────────────────────────────────────
-function probePythonCandidate(command, preArgs = []) {
-  const result = spawnSync(command, [...preArgs, '--version'], { stdio: 'pipe' });
-  if (result.status === 0) {
-    return { command, preArgs };
-  }
-  return null;
-}
-
-function detectWindowsPythonFromWhere() {
-  if (os.platform() !== 'win32') return null;
-
-  // The WindowsApps shim may shadow real Python binaries.
-  // Use `where` to probe concrete executable paths as a fallback.
-  for (const lookup of ['python', 'python3']) {
-    const whereResult = spawnSync('where', [lookup], { stdio: 'pipe', encoding: 'utf8' });
-    if (whereResult.status !== 0) continue;
-
-    const paths = String(whereResult.stdout || '')
-      .split(/\r?\n/)
-      .map(line => line.trim())
-      .filter(Boolean);
-
-    for (const resolvedPath of paths) {
-      const resolved = probePythonCandidate(resolvedPath);
-      if (resolved) return resolved;
-    }
-  }
-  return null;
-}
-
-function detectPython() {
-  const preferredCmd = process.env.MEMOIR_PYTHON_CMD;
-  if (preferredCmd) {
-    const preferred = probePythonCandidate(preferredCmd);
-    if (preferred) return preferred;
-  }
-
-  // Support common launchers on Windows and Unix-like systems.
-  const candidates = [
-    { command: 'python', preArgs: [] },
-    { command: 'python3', preArgs: [] },
-    { command: 'py', preArgs: ['-3'] },
-  ];
-  for (const candidate of candidates) {
-    const resolved = probePythonCandidate(candidate.command, candidate.preArgs);
-    if (resolved) return resolved;
-  }
-  const windowsResolved = detectWindowsPythonFromWhere();
-  if (windowsResolved) return windowsResolved;
-  return null;
-}
-
-function detectPythonw() {
-  // On Windows, prefer pythonw (no console window).
-  if (os.platform() === 'win32') {
-    const pythonw = probePythonCandidate('pythonw');
-    if (pythonw) return pythonw;
-  }
-  return detectPython();
-}
+// Shared with the upgrader/doctor via lib/python-detector.js.
 
 function ensurePythonDeps(pyRunner) {
   if (process.env.MEMOIR_SKIP_PY_DEPS === '1') return;
@@ -119,6 +61,10 @@ function copyDir(src, dst) {
       // Template package filters are for npm only; user projects should not inherit them.
       continue;
     }
+    if (entry.name === 'node_modules' || entry.name === '__pycache__' || entry.name === '.pytest_cache') {
+      // Dev-machine artifacts never belong in a scaffolded project.
+      continue;
+    }
     const s = path.join(src, entry.name);
     const d = path.join(dst, entry.name);
     if (entry.isDirectory()) {
@@ -130,57 +76,6 @@ function copyDir(src, dst) {
         fs.mkdirSync(path.dirname(d), { recursive: true });
         fs.copyFileSync(s, d);
         ok(path.relative(dst, d));
-      }
-    }
-  }
-}
-
-/** Copy src → dst, ALWAYS overwrite (used by sync/update for tooling files). */
-function copyDirOverwrite(src, dst) {
-  if (!fs.existsSync(src)) return;
-  fs.mkdirSync(dst, { recursive: true });
-  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
-    const s = path.join(src, entry.name);
-    const d = path.join(dst, entry.name);
-    if (entry.isDirectory()) {
-      copyDirOverwrite(s, d);
-    } else {
-      fs.mkdirSync(path.dirname(d), { recursive: true });
-      fs.copyFileSync(s, d);
-      ok(path.relative(dst, d));
-    }
-  }
-}
-
-/**
- * Sync tooling files from a template dir into the user's project.
- * OVERWRITES: .agents/  memoirs/webapp/src/  memoirs/webapp/dist/
- * SKIPS:      memoirs/entities.yaml  memoirs/periods/  .gitignore
- */
-function syncTooling(templateDir, target) {
-  info('Syncing .agents/ (skills + workflows)...');
-  copyDirOverwrite(path.join(templateDir, '.agents'),
-                   path.join(target, '.agents'));
-
-  info('Syncing webapp/src/...');
-  copyDirOverwrite(path.join(templateDir, 'memoirs', 'webapp', 'src'),
-                   path.join(target, 'memoirs', 'webapp', 'src'));
-
-  info('Syncing webapp/dist/ (pre-built)...');
-  // Keep user's compiled memoir data intact — only overwrite tooling files
-  const distSrc = path.join(templateDir, 'memoirs', 'webapp', 'dist');
-  const distDst = path.join(target,      'memoirs', 'webapp', 'dist');
-  if (fs.existsSync(distSrc)) {
-    for (const f of fs.readdirSync(distSrc)) {
-      if (f === 'memoirs.manifest.json' || f === 'chapters') continue; // preserve user data
-      const s = path.join(distSrc, f);
-      const d = path.join(distDst, f);
-      if (fs.statSync(s).isDirectory()) {
-        copyDirOverwrite(s, d);
-      } else {
-        fs.mkdirSync(path.dirname(d), { recursive: true });
-        fs.copyFileSync(s, d);
-        ok(f);
       }
     }
   }
@@ -230,6 +125,17 @@ function cmdInit(args) {
     ok('memoirs/periods/  (created)');
   }
 
+  // Project metadata lets `memoir update` know which migrations to run.
+  const projectMeta = path.join(target, 'memoirs', '.project.json');
+  if (!fs.existsSync(projectMeta)) {
+    fs.writeFileSync(projectMeta, `${JSON.stringify({
+      project_schema: 2,
+      tool_version: PKG.version,
+      last_upgraded_at: new Date().toISOString(),
+    }, null, 2)}\n`, 'utf8');
+    ok('memoirs/.project.json  (project metadata)');
+  }
+
   console.log(`
 ${G}${B}✓ Done!${RST}
 
@@ -249,12 +155,13 @@ function cmdBuild(args = []) {
   const forceBuild = args.includes('--force');
   ensurePythonDeps(pyRunner);
 
+  const projectRoot = findProjectRoot(process.cwd()) || process.cwd();
   const guardScript = path.join(
-    process.cwd(),
+    projectRoot,
     '.agents', 'skills', 'biographer-skill', 'tools', 'workflow_guard.py'
   );
   const script = path.join(
-    process.cwd(),
+    projectRoot,
     '.agents', 'skills', 'biographer-skill', 'tools', 'build_memoir_api.py'
   );
   if (!fs.existsSync(guardScript)) {
@@ -269,99 +176,254 @@ function cmdBuild(args = []) {
   if (forceBuild) guardArgs.push('--force');
   const guardResult = spawnSync(pyRunner.command, [...pyRunner.preArgs, ...guardArgs], {
     stdio: 'inherit',
-    cwd: process.cwd(),
+    cwd: projectRoot,
   });
   if (guardResult.status !== 0) fail('Workflow guard blocked build.');
 
   info('Building memoir data...');
   const result = spawnSync(pyRunner.command, [...pyRunner.preArgs, script], {
     stdio: 'inherit',
-    cwd: process.cwd(),
+    cwd: projectRoot,
   });
   if (result.status !== 0) fail('Build failed.');
 
-  // Sync public → dist
-  const src = path.join(process.cwd(), 'memoirs', 'webapp', 'public', 'memoirs.manifest.json');
-  const dst = path.join(process.cwd(), 'memoirs', 'webapp', 'dist',   'memoirs.manifest.json');
-  if (fs.existsSync(src) && fs.existsSync(path.dirname(dst))) {
-    fs.copyFileSync(src, dst);
-    ok('Synced memoirs.manifest.json → dist/');
-  }
-  syncPublicAssetsToDist(process.cwd());
-  ok('Synced public/assets → dist/assets/');
-  syncPublicChaptersToDist(process.cwd());
-  ok('Synced public/chapters → dist/chapters/');
   ok('Build complete.');
+  info('Manifest: memoirs/.cache/memoirs.manifest.json');
 }
 
-function cmdOpen() {
+function cmdOpen(args = []) {
   const pyRunner = detectPythonw();
   if (!pyRunner) fail('Python not found. Install from https://python.org');
 
-  const script = path.join(process.cwd(), 'open_memoirs.pyw');
+  const projectRoot = findProjectRoot(process.cwd()) || process.cwd();
+  const script = path.join(projectRoot, 'open_memoirs.pyw');
   if (!fs.existsSync(script)) {
     fail('open_memoirs.pyw not found.\nAre you in your memoir root directory?');
   }
 
-  info('Launching memoir viewer...');
+  const noBuild = args.includes('--no-build');
+  info(noBuild
+    ? 'Launching memoir viewer (auto-rebuild disabled)...'
+    : 'Launching memoir viewer (auto-rebuilds stale data)...');
   const child = spawn(pyRunner.command, [...pyRunner.preArgs, script], {
     detached: true,
     stdio:    'ignore',
-    cwd:      process.cwd(),
+    cwd:      projectRoot,
+    env:      noBuild ? { ...process.env, MEMOIR_NO_AUTO_BUILD: '1' } : process.env,
   });
   child.unref();
   ok('Viewer launched.');
 }
 
-/**
- * memoir update
- * 1. Installs latest code from the GitHub default branch globally
- * 2. Syncs tooling files from the new installation into the current project
- *    (safe: never touches memoirs/entities.yaml or periods/)
- */
-function cmdUpdate() {
-  const installSpec = getGithubUpdateInstallSpec();
-  info('Updating memoir-agent from GitHub default branch...');
-  info(`Installing ${installSpec} globally...`);
-  const install = runNpm(['install', '-g', installSpec],
-    { stdio: 'inherit' });
-  if (install.status !== 0) fail(`npm install failed for ${installSpec}.`);
-  ok('Package updated from GitHub.');
+/** Walk upwards from startDir until a memoir project root is found. */
+function findProjectRoot(startDir) {
+  let current = path.resolve(startDir);
+  while (true) {
+    if (fs.existsSync(path.join(current, 'memoirs'))) return current;
+    const parent = path.dirname(current);
+    if (parent === current) return null;
+    current = parent;
+  }
+}
 
-  // After npm updates globally, locate the new package's template dir.
-  const globalRoot = runNpm(['root', '-g'], { stdio: 'pipe' });
-  if (globalRoot.status !== 0) {
-    warn('Could not locate global npm root — skipping file sync.');
-    warn('Run manually: memoir sync');
+/** Minimal synchronous Y/n prompt (used only when stdin is a TTY). */
+function promptLine(question) {
+  process.stdout.write(question);
+  const buffer = Buffer.alloc(256);
+  try {
+    const bytes = fs.readSync(0, buffer, 0, buffer.length, null);
+    return buffer.toString('utf8', 0, bytes).trim();
+  } catch {
+    return '';
+  }
+}
+
+function printUpgradePlan(result) {
+  console.log(`\n${B}Upgrade plan${RST}  (schema ${result.from} → ${result.to}, dry-run)\n`);
+  if (!result.plan.length) {
+    info('Project is already up to date; no data migrations needed.');
     return;
   }
-  const newTemplate = path.join(globalRoot.stdout.toString().trim(), 'memoir-agent', 'template');
-
-  if (!fs.existsSync(newTemplate)) {
-    warn('Could not locate new template dir — skipping file sync.');
-    warn(`Run manually: memoir sync`);
-    return;
+  for (const item of result.plan) {
+    info(`${item.id}: ${item.describe}`);
+    if (item.preview === null || item.preview === undefined) continue;
+    const lines = Array.isArray(item.preview) ? item.preview : [JSON.stringify(item.preview)];
+    for (const line of lines.slice(0, 20)) {
+      console.log(`      ${typeof line === 'string' ? line : JSON.stringify(line)}`);
+    }
   }
-
-  syncTooling(newTemplate, process.cwd());
-  ok('Tooling files synced from latest GitHub package.');
-  info('Run  memoir build  to rebuild with the new compiler.');
+  info('Run  memoir update --yes  to apply.');
 }
 
 /**
- * memoir sync
- * Syncs tooling files from the CURRENT installed package into the project.
- * Useful when the user manually ran `npm install -g memoir-agent@latest`
- * or when they want to reset .agents/ and dist/ to the package defaults.
+ * memoir update — one-click upgrade:
+ * install → sync tooling → ordered data migrations → rebuild → stamp .project.json
+ *
+ * Flags: --dry-run, --yes, --tooling-only
+ */
+function cmdUpdate(args = []) {
+  const dryRun = args.includes('--dry-run');
+  const assumeYes = args.includes('--yes');
+  const toolingOnly = args.includes('--tooling-only');
+
+  const projectRoot = findProjectRoot(process.cwd());
+  if (!projectRoot) fail('Not inside a memoir project (no memoirs/ directory found).');
+  if (projectRoot !== process.cwd()) info(`Project root: ${projectRoot}`);
+
+  if (toolingOnly) {
+    info('Syncing tooling files only (no migrations)...');
+    syncTooling(TEMPLATE, projectRoot, { log: ok });
+    ok('Sync complete.');
+    return;
+  }
+
+  if (dryRun) {
+    const result = upgradeProject({
+      projectRoot,
+      templateDir: TEMPLATE,
+      toolVersion: PKG.version,
+      dryRun: true,
+      log: info,
+    });
+    printUpgradePlan(result);
+    return;
+  }
+
+  const schema = detectSchema(projectRoot);
+  const pending = pendingMigrations(schema);
+  info(`Project schema: ${schema} → ${TARGET_SCHEMA}`);
+  if (pending.length === 0) {
+    info('No data migrations needed; refreshing tooling and manifest.');
+  }
+  for (const migration of pending) {
+    info(`  - ${migration.id}: ${migration.describe}`);
+  }
+
+  if (!assumeYes && process.stdin.isTTY) {
+    const answer = promptLine('Proceed with upgrade? [Y/n] ');
+    if (answer.toLowerCase() === 'n') {
+      info('Aborted. Nothing was changed.');
+      return;
+    }
+  }
+
+  const installSpec = getGithubUpdateInstallSpec();
+  info(`Installing ${installSpec} globally...`);
+  const install = runNpm(['install', '-g', installSpec], { stdio: 'inherit' });
+  if (install.status !== 0) fail(`npm install failed for ${installSpec}.`);
+  ok('Package updated from GitHub.');
+
+  // After npm updates globally, sync from the new package when it can be found.
+  let templateDir = TEMPLATE;
+  const globalRoot = runNpm(['root', '-g'], { stdio: 'pipe' });
+  if (globalRoot.status === 0) {
+    const candidate = path.join(globalRoot.stdout.toString().trim(), 'memoir-agent', 'template');
+    if (fs.existsSync(candidate)) {
+      templateDir = candidate;
+    } else {
+      warn('Could not locate the new global template — syncing from the current package instead.');
+    }
+  } else {
+    warn('Could not locate global npm root — syncing from the current package instead.');
+  }
+
+  const rebuild = () => {
+    const pyRunner = detectPython();
+    if (!pyRunner) {
+      warn('Python 3 not found — skipping rebuild. Run memoir build later.');
+      return;
+    }
+    const script = path.join(
+      projectRoot,
+      '.agents', 'skills', 'biographer-skill', 'tools', 'build_memoir_api.py'
+    );
+    if (!fs.existsSync(script)) {
+      warn('build_memoir_api.py not found — skipping rebuild. Run memoir build later.');
+      return;
+    }
+    info('Rebuilding memoir data...');
+    const result = spawnSync(pyRunner.command, [...pyRunner.preArgs, script], {
+      stdio: 'inherit',
+      cwd: projectRoot,
+    });
+    if (result.status !== 0) {
+      throw new Error(
+        'Rebuild failed after migration. Your data is migrated; fix the reported errors and run memoir build.'
+      );
+    }
+  };
+
+  try {
+    const report = upgradeProject({
+      projectRoot,
+      templateDir,
+      toolVersion: PKG.version,
+      rebuild,
+      log: info,
+    });
+    ok(`Upgrade complete (schema ${report.from} → ${report.to}).`);
+    if (report.applied.length > 0) {
+      info(`Applied migrations: ${report.applied.join(', ')}`);
+    }
+    info('Run  memoir doctor  to verify the project.');
+  } catch (error) {
+    fail(error.message);
+  }
+}
+
+/**
+ * memoir sync — tooling only, from the CURRENT installed package.
  */
 function cmdSync() {
   if (!fs.existsSync(TEMPLATE)) {
     fail('Template directory not found. Reinstall: npm install -g memoir-agent');
   }
+  const projectRoot = findProjectRoot(process.cwd()) || process.cwd();
   info(`Syncing tooling from memoir-agent v${PKG.version}...`);
-  syncTooling(TEMPLATE, process.cwd());
+  syncTooling(TEMPLATE, projectRoot, { log: ok });
   ok('Sync complete.');
   info('Run  memoir build  to rebuild with the updated compiler.');
+}
+
+/** memoir doctor — read-only project health checks. */
+function cmdDoctor(args = []) {
+  const projectRoot = findProjectRoot(process.cwd());
+  if (!projectRoot) fail('Not inside a memoir project (no memoirs/ directory found).');
+
+  const script = path.join(
+    projectRoot,
+    '.agents', 'skills', 'biographer-skill', 'tools', 'doctor.py'
+  );
+  if (!fs.existsSync(script)) {
+    fail('doctor.py not found.\nRun memoir sync to update tooling files.');
+  }
+  const pyRunner = detectPython();
+  if (!pyRunner) fail('Python 3 not found. Install it from https://python.org');
+
+  const passthrough = args.filter(arg => arg === '--json');
+  const result = spawnSync(pyRunner.command, [...pyRunner.preArgs, script, ...passthrough], {
+    stdio: 'inherit',
+    cwd: projectRoot,
+  });
+  process.exit(result.status ?? 1);
+}
+
+/** memoir export <dir> — materialize a portable static bundle (the only copy path). */
+function cmdExport(args = []) {
+  const outArg = args.find(arg => !arg.startsWith('-'));
+  if (!outArg) fail('Usage: memoir export <dir>');
+
+  const projectRoot = findProjectRoot(process.cwd());
+  if (!projectRoot) fail('Not inside a memoir project (no memoirs/ directory found).');
+
+  const { exportBundle } = require('./lib/export-bundle');
+  try {
+    const outDir = path.resolve(projectRoot, outArg);
+    exportBundle({ projectRoot, outDir, log: ok });
+    ok(`Exported static bundle to ${outDir}`);
+  } catch (error) {
+    fail(error.message);
+  }
 }
 
 // ── Help / version ───────────────────────────────────────────────────────────
@@ -375,9 +437,12 @@ ${B}Usage:${RST}
 
   ${B}Commands:${RST}
   ${G}init${RST} [dir]   Scaffold memoir system in current or specified directory
-  ${G}build${RST} [--force]  Compile raw_notes → memoirs.manifest.json  (run after /recall)
-  ${G}open${RST}         Launch pywebview desktop viewer
-  ${G}update${RST}       Upgrade from GitHub repo + sync tooling files
+  ${G}build${RST} [--force]  Compile periods/ → memoirs/.cache/memoirs.manifest.json
+  ${G}open${RST} [--no-build]  Launch pywebview viewer (auto-rebuilds stale data by default)
+  ${G}doctor${RST} [--json]  Check project health (layout / YAML / ids / duplicates)
+  ${G}export${RST} <dir>  Materialize a portable static bundle (app + data + media)
+  ${G}update${RST} [--dry-run] [--yes] [--tooling-only]
+                        One-click upgrade: install → migrate → sync → rebuild
   ${G}sync${RST}         Sync tooling files from current package (no npm upgrade)
 
 ${B}Options:${RST}
@@ -388,10 +453,13 @@ ${B}Examples:${RST}
   memoir init                 # initialize in current directory
   memoir init ~/my-memoirs    # initialize in a specific path
   memoir build
-  memoir build --force         # bypass guard checks and write an audit record
+  memoir build --force         # keep first entry on duplicate ids + audit record
   memoir open
-  memoir update               # pull from GitHub default branch + sync tooling
-  memoir sync                 # sync tooling files only
+  memoir doctor                # check project health
+  memoir update --dry-run      # preview the one-click upgrade
+  memoir update                # install + migrate + sync + rebuild
+  memoir export ./dist-site    # portable static bundle (app + data + media)
+  memoir sync                  # sync tooling files only
 
 ${D}Python dependencies (auto-installed on npm install):${RST}
   pyyaml>=6.0  |  pywebview>=5.0
@@ -404,8 +472,11 @@ const [cmd, ...args] = process.argv.slice(2);
 switch (cmd) {
   case 'init':              cmdInit(args);   break;
   case 'build':             cmdBuild(args);  break;
-  case 'open':              cmdOpen();       break;
-  case 'update':            cmdUpdate();     break;
+  case 'open':              cmdOpen(args);   break;
+  case 'doctor':            cmdDoctor(args); break;
+  case 'export':            cmdExport(args); break;
+  case 'update':
+  case 'upgrade':           cmdUpdate(args); break;
   case 'sync':              cmdSync();       break;
   case '-v':
   case '--version':         console.log(PKG.version); break;

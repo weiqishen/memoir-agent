@@ -1,8 +1,8 @@
-import { useRef, useCallback, useEffect, useState } from 'react';
+import { useRef, useCallback, useEffect, useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, FileText } from 'lucide-react';
 import { ErrorBoundary } from './ErrorBoundary';
-import { ReactMarkdown, chapterMarkdownComponents } from './ChapterMarkdown';
+import { ReactMarkdown, chapterMarkdownComponents, extractChapterHeadings } from './ChapterMarkdown';
 import type { SelectedItem, GraphLink, IndexRecord, Entry } from '../types';
 import type { Translations } from '../i18n';
 import { getConnectedEventRefs } from '../graphModel';
@@ -34,6 +34,11 @@ export function MemoryModal({ item, onClose, onSelectEvent, loadChapterContent, 
   const overlayRef = useRef<HTMLDivElement>(null);
   const [chapterContent, setChapterContent] = useState<string | null>(null);
   const [isChapterLoading, setIsChapterLoading] = useState(false);
+
+  const headings = useMemo(
+    () => (chapterContent ? extractChapterHeadings(chapterContent).filter(h => h.level <= 2) : []),
+    [chapterContent]
+  );
 
   const handleOverlayClick = useCallback((e: React.MouseEvent) => {
     if (e.target === overlayRef.current) onClose();
@@ -101,6 +106,26 @@ export function MemoryModal({ item, onClose, onSelectEvent, loadChapterContent, 
                   </div>
                 ) : chapterContent ? (
                   <ErrorBoundary>
+                    {headings.length >= 4 && (
+                      <nav className="chapter-toc">
+                        <span className="chapter-toc-label">{t.toc}</span>
+                        <ul>
+                          {headings.map((heading, index) => (
+                            <li key={`${heading.id}-${index}`} className={`toc-level-${heading.level}`}>
+                              <button
+                                onClick={() => {
+                                  document
+                                    .getElementById(heading.id)
+                                    ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                }}
+                              >
+                                {heading.text}
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      </nav>
+                    )}
                     <div className="markdown-prose">
                       <ReactMarkdown components={chapterMarkdownComponents}>
                         {chapterContent}

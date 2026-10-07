@@ -53,7 +53,9 @@ memoirs/
 │   │   ├── raw_notes/
 │   │   └── chapters/
 │   └── US_PhD/ ...
+├── .cache/           ← 编译派生文件（memoirs.manifest.json，可随时删除重建）
 ├── webapp/           ← 前端展示应用（不动）
+├── .project.json     ← 项目 schema / 工具版本元数据
 └── entities.yaml     ← 人物/地点别名与层级注册表（随项目增长）
 ```
 
@@ -62,7 +64,7 @@ memoirs/
 
 ## 时间字段速查
 
-`timeline.yaml` 的 `date` 字段可以保留材料真实支持的粒度：`YYYY-MM-DD`、`YYYY-MM`、`YYYY`、`YYYY-Q3`、`YYYY年第三季度`、`约YYYY年`。不要为了排序而编造具体日。编译器会在 `memoirs.manifest.json` 中补充规范化 `time` 元数据，并把无法解析或歧义的时间写入 `memoirs/.time_resolution_report.json`。
+`timeline.yaml` 的 `date` 字段可以保留材料真实支持的粒度：`YYYY-MM-DD`、`YYYY-MM`、`YYYY`、`YYYY-Q3`、`YYYY年第三季度`、`约YYYY年`。不要为了排序而编造具体日。编译器会在 `memoirs/.cache/memoirs.manifest.json` 中补充规范化 `time` 元数据，并把无法解析或歧义的时间写入 `memoirs/.time_resolution_report.json`。
 
 粗粒度时间的章节文件名应包含稳定事件 slug 或 timeline `id`，例如 `2024-Q3-first_semester.md`，避免 `2024` 这类年份级时间误匹配其他 `2024-*` 章节。
 

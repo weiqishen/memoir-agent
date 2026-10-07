@@ -133,7 +133,7 @@ export function PlacesView({ placesIndex, placesMeta, onSelectEntry, t }: Props)
           )}
           <span className={isRoot ? 'index-card-name' : 'child-place-name'}>{node.display}</span>
           {hasChildren && (
-            <span className="index-card-badge">{node.children.length} 子地点</span>
+            <span className="index-card-badge">{t.childPlaces(node.children.length)}</span>
           )}
           <span className="index-card-count">{t.memoryCount(node.entries.length)}</span>
           <motion.span className="index-card-chevron"

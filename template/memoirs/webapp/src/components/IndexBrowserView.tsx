@@ -3,7 +3,7 @@
  * Used for People view and Location view.
  * Groups entries under named keys (person name or place name).
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { ResolvedEntityIndex, Entry } from '../types';
 import type { Translations } from '../i18n';
@@ -15,12 +15,17 @@ interface Props {
   index:      IndexData;
   icon:       React.ReactNode;  // Lucide icon component
   emptyLabel: string;
+  expandKey?: string | null;
   onSelectEntry: (period: string, entry: Entry) => void;
   t: Translations;
 }
 
-export function IndexBrowserView({ index, icon, emptyLabel, onSelectEntry, t }: Props) {
+export function IndexBrowserView({ index, icon, emptyLabel, expandKey, onSelectEntry, t }: Props) {
   const [expanded, setExpanded] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (expandKey) setExpanded(expandKey);
+  }, [expandKey]);
 
   const keys = Object.keys(index).sort((a, b) => a.localeCompare(b, 'zh'));
 

@@ -1,34 +1,54 @@
 """
-build_memoir_api.py — 数据编译器
+build_memoir_api.py — 数据编译器 (schema v2)
+
+Reads memoirs/periods/ and writes a single derived file:
+    memoirs/.cache/memoirs.manifest.json
+
+Chapter markdown is embedded into the manifest, and images are referenced
+through /media/<period>/<file>, which the local viewer serves directly from
+periods/<period>/assets — nothing is copied into webapp/public or dist.
 """
 
-import os
+import datetime
+import hashlib
 import json
+import os
 import re
 import shutil
 import sys
+import tempfile
+from urllib.parse import quote
+
 import yaml
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 if CURRENT_DIR not in sys.path:
     sys.path.insert(0, CURRENT_DIR)
 
-from entity_resolver import EntityResolver, normalize_alias
+from entity_resolver import EntityResolver
 from time_spec import parse_time_spec
+
+SCHEMA_VERSION = 2
+TOOL_VERSION = "0.2.0"
 
 WORKSPACE_DIR = os.path.abspath(os.path.join(CURRENT_DIR, "../../../../"))
 MEMOIRS_DIR = os.path.join(WORKSPACE_DIR, "memoirs")
 PERIODS_DIR = os.path.join(MEMOIRS_DIR, "periods")
+# Legacy build output location; kept only so migrations and doctor can find it.
 WEBAPP_PUBLIC_DIR = os.path.join(MEMOIRS_DIR, "webapp", "public")
 ALIAS_REGISTRY = os.path.join(MEMOIRS_DIR, "entities.yaml")
 MANIFEST_FILENAME = "memoirs.manifest.json"
+CACHE_DIRNAME = ".cache"
 RESOLUTION_REPORT_FILENAME = ".entity_resolution_report.json"
 TIME_RESOLUTION_REPORT_FILENAME = ".time_resolution_report.json"
 
 
-def normalize_entity_key(value: str):
-    """Normalize entity keys for case-insensitive and whitespace-tolerant matching."""
-    return normalize_alias(value)
+class TimelineParseError(Exception):
+    """Raised when a timeline.yaml file cannot be parsed safely."""
+
+
+class EntityRegistryError(Exception):
+    """Raised when memoirs/entities.yaml cannot be parsed safely."""
 
 
 def load_entity_registry_document():
@@ -36,8 +56,11 @@ def load_entity_registry_document():
     if not os.path.exists(ALIAS_REGISTRY):
         return {"people": {}, "places": {}}
 
-    with open(ALIAS_REGISTRY, "r", encoding="utf-8") as f:
-        reg = yaml.safe_load(f) or {}
+    try:
+        with open(ALIAS_REGISTRY, "r", encoding="utf-8") as f:
+            reg = yaml.safe_load(f) or {}
+    except yaml.YAMLError as e:
+        raise EntityRegistryError(f"Malformed YAML in {ALIAS_REGISTRY}: {e}") from e
     if not isinstance(reg, dict):
         reg = {}
 
@@ -53,46 +76,6 @@ def load_entity_registry_document():
     return reg
 
 
-def build_registry_maps(reg):
-    """Build canonical maps for entities and normalized lookup maps for tolerant matching."""
-    people_map: dict[str, str] = {}
-    places_map: dict[str, str] = {}
-    people_map_normalized: dict[str, str] = {}
-    places_map_normalized: dict[str, str] = {}
-    places_meta: dict[str, dict] = {}
-
-    for canonical, meta in reg["people"].items():
-        people_map[canonical] = canonical
-        people_map_normalized[normalize_entity_key(canonical)] = canonical
-        for alias in (meta or {}).get("aliases", []):
-            alias_key = str(alias)
-            people_map[alias_key] = canonical
-            people_map_normalized[normalize_entity_key(alias_key)] = canonical
-
-    for canonical, meta in reg["places"].items():
-        places_map[canonical] = canonical
-        places_map_normalized[normalize_entity_key(canonical)] = canonical
-        parent_key = canonical.split("·", 1)[0] if "·" in canonical else ""
-        for alias in (meta or {}).get("aliases", []):
-            alias_key = str(alias)
-            places_map[alias_key] = canonical
-            places_map_normalized[normalize_entity_key(alias_key)] = canonical
-            # Child-place aliases are often stored as local names like "commuter lot".
-            # Also map "parent·alias" so extracted FQN-style aliases resolve correctly.
-            if parent_key and "·" not in alias_key:
-                fq_alias_key = f"{parent_key}·{alias_key}"
-                places_map_normalized[normalize_entity_key(fq_alias_key)] = canonical
-        m = meta or {}
-        entry: dict = {}
-        if "display" in m:
-            entry["display"] = m["display"]
-        if "parent" in m:
-            entry["parent"] = m["parent"]
-        if entry:
-            places_meta[canonical] = entry
-    return people_map, places_map, people_map_normalized, places_map_normalized, places_meta
-
-
 def parse_frontmatter(content: str):
     if not content.startswith("---"):
         return {}, content
@@ -106,15 +89,30 @@ def parse_frontmatter(content: str):
     return meta, parts[2]
 
 
-def parse_timeline(content: str):
+def parse_timeline(content: str, source_path: str | None = None):
+    """Parse a timeline document, raising TimelineParseError instead of silently dropping entries."""
+    location = source_path or "timeline.yaml"
+    if not str(content or "").strip():
+        return {"period": "", "entries": []}
     try:
         data = yaml.safe_load(content)
-        if not data:
-            return {"period": "", "entries": []}
-        return {"period": data.get("period", ""), "entries": data.get("entries", [])}
     except yaml.YAMLError as e:
-        print(f"Warning: {e}")
+        raise TimelineParseError(f"Malformed YAML in {location}: {e}") from e
+    if data is None:
         return {"period": "", "entries": []}
+    if not isinstance(data, dict):
+        raise TimelineParseError(
+            f"Malformed timeline in {location}: expected a YAML mapping, got {type(data).__name__}"
+        )
+    entries = data.get("entries")
+    if entries is None:
+        entries = []
+    if not isinstance(entries, list):
+        raise TimelineParseError(
+            f"Malformed timeline in {location}: 'entries' must be a list, got {type(entries).__name__}"
+        )
+    period = data.get("period") or ""
+    return {"period": period, "entries": entries}
 
 
 def build_event_ref(period: str, entry: dict):
@@ -154,6 +152,11 @@ def graph_event_id(event_ref: str) -> str:
     return f"event:{event_ref}"
 
 
+def graph_period_id(period: str) -> str:
+    """Build a graph-only period hub node id."""
+    return f"period:{period}"
+
+
 def graph_person_id(canonical: str) -> str:
     """Build a graph-only person node id that cannot collide with place ids."""
     return f"person:{canonical}"
@@ -164,55 +167,123 @@ def graph_place_id(canonical: str) -> str:
     return f"place:{canonical}"
 
 
-def export_chapter_assets(period: str, chapter_dir: str, chapter_content: str):
-    """Rewrite chapter-local asset references to web paths and copy files into public/assets."""
-    web_assets_dir = os.path.join(WEBAPP_PUBLIC_DIR, "assets", period)
-    os.makedirs(web_assets_dir, exist_ok=True)
+def file_sha1(path: str) -> str:
+    digest = hashlib.sha1()
+    with open(path, "rb") as file:
+        for chunk in iter(lambda: file.read(65536), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def atomic_write_text(path: str, content: str):
+    """Write text via a temp file + replace so a crash cannot leave a half-written file."""
+    directory = os.path.dirname(path) or "."
+    os.makedirs(directory, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(prefix=".tmp-", suffix=".json", dir=directory)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as file:
+            file.write(content)
+            file.flush()
+            os.fsync(file.fileno())
+        os.replace(tmp_path, path)
+    except BaseException:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        raise
+
+
+def store_chapter_asset(source_path: str, assets_dir: str) -> str:
+    """Copy a chapter-referenced asset into the period asset store; return its filename."""
+    filename = os.path.basename(source_path)
+    os.makedirs(assets_dir, exist_ok=True)
+    dest_path = os.path.join(assets_dir, filename)
+    source_hash = file_sha1(source_path)
+    if os.path.exists(dest_path) and file_sha1(dest_path) != source_hash:
+        stem, ext = os.path.splitext(filename)
+        filename = f"{stem}_{source_hash[:8]}{ext}"
+        dest_path = os.path.join(assets_dir, filename)
+    shutil.copy2(source_path, dest_path)
+    return filename
+
+
+def rewrite_chapter_content(period: str, chapter_dir: str, chapter_content: str, missing_assets: list):
+    """Point chapter images at /media/<period>/<file> without copying anything.
+
+    Assets already living in periods/<period>/assets are referenced in place;
+    absolute paths from outside the period are archived into that folder first.
+    """
+    assets_dir = os.path.normpath(os.path.join(os.path.dirname(chapter_dir), "assets"))
 
     def replace_asset(match):
         alt_text = match.group(1)
         asset_path = match.group(2).strip()
 
-        if re.match(r"^(?:https?:)?//", asset_path) or asset_path.startswith("/assets/"):
+        if re.match(r"^(?:https?:)?//", asset_path) or asset_path.startswith("/media/"):
             return match.group(0)
 
-        source_path = os.path.normpath(os.path.join(chapter_dir, asset_path))
-        if not os.path.exists(source_path) or not os.path.isfile(source_path):
+        if asset_path.startswith(("/assets/", "/chapters/")):
+            # Legacy web path from an older build; fall back to its basename.
+            basename = os.path.basename(asset_path)
+            source_path = os.path.join(assets_dir, basename)
+        else:
+            source_path = os.path.normpath(os.path.join(chapter_dir, asset_path))
+            basename = os.path.basename(source_path)
+
+        if not os.path.isfile(source_path):
+            missing_assets.append({"period": period, "reference": asset_path})
             return match.group(0)
 
-        filename = os.path.basename(source_path)
-        target_path = os.path.join(web_assets_dir, filename)
-        shutil.copy2(source_path, target_path)
-        return f"![{alt_text}](/assets/{period}/{filename})"
+        if os.path.normpath(os.path.dirname(source_path)) != assets_dir:
+            stored = store_chapter_asset(source_path, assets_dir)
+            if not stored:
+                missing_assets.append({"period": period, "reference": asset_path})
+                return match.group(0)
+            basename = stored
+
+        return f"![{alt_text}](/media/{period}/{quote(basename)})"
 
     return re.sub(r'!\[([^\]]*)\]\(([^)]+)\)', replace_asset, chapter_content)
 
 
-def publish_chapter_markdown(period: str, filename: str, chapter_content: str):
-    """Publish chapter markdown to webapp/public/chapters and return web path."""
-    public_period_dir = os.path.join(WEBAPP_PUBLIC_DIR, "chapters", period)
-    os.makedirs(public_period_dir, exist_ok=True)
-    chapter_output_path = os.path.join(public_period_dir, filename)
-    with open(chapter_output_path, "w", encoding="utf-8") as chapter_file:
-        chapter_file.write(chapter_content)
-    return f"/chapters/{period}/{filename}"
-
-
-def build_api():
+def build_api(force: bool = False):
     if not os.path.exists(PERIODS_DIR):
         print(f"ERROR: periods dir not found: {PERIODS_DIR}")
-        return
+        raise SystemExit(1)
 
-    # Rebuild published chapter markdown from scratch to avoid stale files.
-    published_chapters_root = os.path.join(WEBAPP_PUBLIC_DIR, "chapters")
-    if os.path.exists(published_chapters_root):
-        shutil.rmtree(published_chapters_root)
+    # Validate every timeline and the entity registry before touching any output,
+    # so a malformed input can never produce a silent or partial build.
+    validated_timelines: dict[str, dict] = {}
+    timeline_errors: list[str] = []
+    for item in sorted(os.listdir(PERIODS_DIR)):
+        period_dir = os.path.join(PERIODS_DIR, item)
+        if not os.path.isdir(period_dir):
+            continue
+        tl = os.path.join(period_dir, "timeline.yaml")
+        if os.path.exists(tl):
+            with open(tl, "r", encoding="utf-8") as f:
+                try:
+                    validated_timelines[item] = parse_timeline(f.read(), tl)
+                except TimelineParseError as e:
+                    timeline_errors.append(str(e))
+    if timeline_errors:
+        print("ERROR: refusing to build; fix the following timeline files:")
+        for error in timeline_errors:
+            print(f"  - {error}")
+        raise SystemExit(1)
 
-    registry_doc = load_entity_registry_document()
+    try:
+        registry_doc = load_entity_registry_document()
+    except EntityRegistryError as error:
+        print(f"ERROR: {error}")
+        raise SystemExit(1)
     resolver = EntityResolver(registry_doc)
     places_meta = resolver.places_meta
+
     new_people_added = []
     new_places_added = []
+    missing_chapter_assets: list[dict] = []
+    inferred_parents: list[dict] = []
+    place_cycles: list[list[str]] = []
     resolution_report = {
         "ambiguous_people": [],
         "ambiguous_places": [],
@@ -221,11 +292,25 @@ def build_api():
         "resolved_people_aliases": [],
         "resolved_places_aliases": [],
         "missing_raw_notes": [],
+        "coerced_entity_fields": [],
         "invalid_entity_fields": [],
     }
     time_resolution_report = {
         "unresolved_times": [],
     }
+
+    # FQN child places registered without an explicit parent keep their hierarchy.
+    for canonical in (registry_doc.get("places") or {}):
+        canonical_text = str(canonical)
+        if "·" not in canonical_text:
+            continue
+        if str((places_meta.get(canonical_text) or {}).get("parent") or "").strip():
+            continue
+        inferred_parent = canonical_text.split("·", 1)[0]
+        places_meta.setdefault(canonical_text, {})["parent"] = inferred_parent
+        inferred_parents.append(
+            {"place": canonical_text, "inferred_parent": inferred_parent, "source": "fqn"}
+        )
 
     # ── 读取 period 数据 ──────────────────────────────────────────────────────
     all_data: dict = {}
@@ -237,8 +322,7 @@ def build_api():
 
         tl = os.path.join(period_dir, "timeline.yaml")
         if os.path.exists(tl):
-            with open(tl, "r", encoding="utf-8") as f:
-                pd["timeline"] = parse_timeline(f.read())
+            pd["timeline"] = validated_timelines.get(item, {"period": "", "entries": []})
             for entry in pd["timeline"].get("entries", []):
                 if isinstance(entry, dict):
                     attach_time_metadata(item, entry, time_resolution_report)
@@ -247,12 +331,11 @@ def build_api():
         if os.path.exists(ch_dir):
             for ch in sorted(os.listdir(ch_dir)):
                 if ch.endswith(".md"):
-                    chapter_path = os.path.join(ch_dir, ch)
-                    with open(chapter_path, "r", encoding="utf-8") as f:
-                        chapter_content = export_chapter_assets(period=item, chapter_dir=ch_dir, chapter_content=f.read())
-                        chapter_web_path = publish_chapter_markdown(period=item, filename=ch, chapter_content=chapter_content)
-                        pd["chapters"].append(
-                            {"filename": ch, "path": chapter_web_path})
+                    with open(os.path.join(ch_dir, ch), "r", encoding="utf-8") as f:
+                        chapter_content = rewrite_chapter_content(
+                            item, ch_dir, f.read(), missing_chapter_assets
+                        )
+                    pd["chapters"].append({"filename": ch, "content": chapter_content})
 
         rn_dir = os.path.join(period_dir, "raw_notes")
         if os.path.exists(rn_dir):
@@ -263,10 +346,27 @@ def build_api():
 
         all_data[item] = pd
 
+    # ── 重复 event ref 检测（同 period 内 id/date+event 必须唯一）────────────
+    ref_counts: dict[str, int] = {}
+    for period, data in all_data.items():
+        for entry in data["timeline"].get("entries", []):
+            if not isinstance(entry, dict) or not str(entry.get("event", "")).strip():
+                continue
+            ref = build_event_ref(period, entry)
+            ref_counts[ref] = ref_counts.get(ref, 0) + 1
+    duplicate_refs = sorted(ref for ref, count in ref_counts.items() if count > 1)
+    if duplicate_refs and not force:
+        print("ERROR: duplicate event references detected; give each entry a unique id:")
+        for ref in duplicate_refs:
+            print(f"  - {ref}")
+        print("Rerun with --force to keep the first entry and report the rest.")
+        raise SystemExit(1)
+
     # ── 图谱 + 索引 ───────────────────────────────────────────────────────────
     graph: dict = {"nodes": [], "links": []}
     added_nodes: set = set()
     added_links: set = set()   # (source, target) dedup for graph edges
+    contains_edges: set = set()  # (parent, child) dedup for cycle detection
     people_index: dict = {}
     places_index: dict = {}
 
@@ -293,10 +393,24 @@ def build_api():
 
     def _entity_values(meta: dict, field: str, event_ref: str, raw_note: str):
         value = meta.get(field, [])
-        if value in (None, ""):
+        if value is None or value == "":
             return []
         if isinstance(value, list):
             return value
+        if isinstance(value, str):
+            # Hand-written raw notes sometimes use `people: 老王` or a comma
+            # separated string instead of a list; coerce instead of dropping.
+            coerced = [part.strip() for part in re.split(r"[,，]", value) if part.strip()]
+            resolution_report["coerced_entity_fields"].append(
+                {
+                    "field": field,
+                    "value": value,
+                    "coerced": coerced,
+                    "raw_note": raw_note,
+                    "event_ref": event_ref,
+                }
+            )
+            return coerced
         resolution_report["invalid_entity_fields"].append(
             {
                 "field": field,
@@ -375,12 +489,21 @@ def build_api():
         extra = {"parent": parent} if parent else None
         _ensure_node(graph_place_id(canonical), group=3, name=_place_display(canonical), extra=extra)
 
+    def _add_contains(parent: str, child: str):
+        """Add a contains edge, refusing edges that would close a cycle."""
+        if (child, parent) in contains_edges:
+            if [parent, child] not in place_cycles:
+                place_cycles.append([parent, child])
+            return
+        _add_link(graph_place_id(parent), graph_place_id(child), "contains")
+        contains_edges.add((parent, child))
+
     def _ensure_place_hierarchy(canonical: str):
         lineage = _place_lineage(canonical)
         for place in reversed(lineage):
             _ensure_place_node(place)
         for child, parent in zip(lineage, lineage[1:]):
-            _add_link(graph_place_id(parent), graph_place_id(child), "contains")
+            _add_contains(parent, child)
         return lineage
 
     def _index_place(canonical: str, event_node_id: str, event_ref: str):
@@ -389,18 +512,29 @@ def build_api():
         for place in lineage:
             _dedup_append_event_ref(places_index, place, event_ref)
 
+    seen_event_refs: set = set()
     for period, data in all_data.items():
-        if "entries" not in data.get("timeline", {}):
+        entries = data.get("timeline", {}).get("entries")
+        if not isinstance(entries, list):
             continue
 
-        for entry in data["timeline"]["entries"]:
+        _ensure_node(graph_period_id(period), group=1, name=period)
+
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
             event_name = str(entry.get("event", "")).strip()
             if not event_name:
                 continue
             event_ref = build_event_ref(period, entry)
+            if event_ref in seen_event_refs:
+                # Duplicate kept out by --force; already reported.
+                continue
+            seen_event_refs.add(event_ref)
             event_node_id = graph_event_id(event_ref)
 
             _ensure_node(event_node_id, group=2, name=event_name, extra={"event_ref": event_ref})
+            _add_link(event_node_id, graph_period_id(period), "belongs_to")
 
             for file_path in entry.get("related_files", []):
                 rn = os.path.basename(file_path)
@@ -476,7 +610,7 @@ def build_api():
             yaml.safe_dump(registry_doc, f, allow_unicode=True,
                            sort_keys=False, default_flow_style=False)
 
-    # ── 输出 ─────────────────────────────────────────────────────────────────
+    # ── 输出（唯一派生文件：memoirs/.cache/memoirs.manifest.json）────────────
     # Strip raw_notes from output — body text is only needed at compile time;
     # the frontend only reads timeline + chapters.
     memoirs_out = {
@@ -485,31 +619,56 @@ def build_api():
         for period, pd in all_data.items()
     }
 
-    final_payload = {
-        "memoirs":      memoirs_out,
-        "graph":        graph,
-        "people_index": people_index,
-        "places_index": places_index,
-        "places_meta":  {k: v for k, v in places_meta.items() if v},
+    issues = {
+        "graph": {
+            "duplicate_event_refs": duplicate_refs,
+            "place_cycles": place_cycles,
+            "missing_parents": inferred_parents,
+            "unknown_entities": [
+                {"kind": "person", **item}
+                for item in resolution_report["unknown_people_auto_added"]
+            ] + [
+                {"kind": "place", **item}
+                for item in resolution_report["unknown_places_auto_added"]
+            ],
+            "ambiguous_entities": [
+                {"kind": "person", **item}
+                for item in resolution_report["ambiguous_people"]
+            ] + [
+                {"kind": "place", **item}
+                for item in resolution_report["ambiguous_places"]
+            ],
+            "missing_raw_notes": resolution_report["missing_raw_notes"],
+        },
+        "time": {"unresolved": time_resolution_report["unresolved_times"]},
+        "entities": {
+            "invalid_fields": resolution_report["invalid_entity_fields"],
+            "coerced_fields": resolution_report["coerced_entity_fields"],
+        },
+        "chapter_assets": {"missing": missing_chapter_assets},
     }
 
-    os.makedirs(WEBAPP_PUBLIC_DIR, exist_ok=True)
-    out_path = os.path.join(WEBAPP_PUBLIC_DIR, MANIFEST_FILENAME)
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(final_payload, f, ensure_ascii=False, indent=2)
+    final_payload = {
+        "schema_version": SCHEMA_VERSION,
+        "tool_version": TOOL_VERSION,
+        "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "memoirs": memoirs_out,
+        "graph": graph,
+        "people_index": people_index,
+        "places_index": places_index,
+        "places_meta": {k: v for k, v in places_meta.items() if v},
+        "issues": issues,
+    }
+
+    cache_dir = os.path.join(MEMOIRS_DIR, CACHE_DIRNAME)
+    out_path = os.path.join(cache_dir, MANIFEST_FILENAME)
+    atomic_write_text(out_path, json.dumps(final_payload, ensure_ascii=False, indent=2))
 
     report_path = os.path.join(MEMOIRS_DIR, RESOLUTION_REPORT_FILENAME)
-    with open(report_path, "w", encoding="utf-8") as f:
-        json.dump(resolution_report, f, ensure_ascii=False, indent=2)
+    atomic_write_text(report_path, json.dumps(resolution_report, ensure_ascii=False, indent=2))
 
     time_report_path = os.path.join(MEMOIRS_DIR, TIME_RESOLUTION_REPORT_FILENAME)
-    with open(time_report_path, "w", encoding="utf-8") as f:
-        json.dump(time_resolution_report, f, ensure_ascii=False, indent=2)
-
-    # Clean up legacy output to enforce the new single-manifest contract.
-    legacy_out_path = os.path.join(WEBAPP_PUBLIC_DIR, "memoirs.json")
-    if os.path.exists(legacy_out_path):
-        os.remove(legacy_out_path)
+    atomic_write_text(time_report_path, json.dumps(time_resolution_report, ensure_ascii=False, indent=2))
 
     top_places = [k for k in places_index if not places_meta.get(
         k, {}).get("parent")]
@@ -522,9 +681,28 @@ def build_api():
     print(f"  Places (child): {sub_places}")
     print(
         f"  Graph         : {len(graph['nodes'])} nodes, {len(graph['links'])} links")
+    issue_count = sum(
+        len(value) if isinstance(value, list) else 0
+        for group in issues.values()
+        for value in group.values()
+    )
+    print(f"  Issues        : {issue_count}")
     if resolution_report["ambiguous_people"] or resolution_report["ambiguous_places"]:
         print(f"  Alias report  : {report_path}")
+    if time_resolution_report["unresolved_times"]:
+        print(f"  Time report   : {time_report_path}")
 
 
 if __name__ == "__main__":
-    build_api()
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Compile memoirs/periods into memoirs/.cache/memoirs.manifest.json (schema v2)."
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Keep the first entry when duplicate event refs are found and report the rest.",
+    )
+    args = parser.parse_args()
+    build_api(force=args.force)

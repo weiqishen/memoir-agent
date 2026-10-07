@@ -15,6 +15,10 @@ assert spec.loader is not None
 spec.loader.exec_module(build_memoir_api)
 
 
+def manifest_path(memoirs_dir: pathlib.Path) -> pathlib.Path:
+    return memoirs_dir / ".cache" / "memoirs.manifest.json"
+
+
 class BuildMemoirApiTests(unittest.TestCase):
     def setUp(self):
         self.original_workspace_dir = build_memoir_api.WORKSPACE_DIR
@@ -152,7 +156,7 @@ class BuildMemoirApiTests(unittest.TestCase):
             build_memoir_api.build_api()
 
             registry = yaml.safe_load((memoirs_dir / "entities.yaml").read_text(encoding="utf-8"))
-            manifest = yaml.safe_load((public_dir / "memoirs.manifest.json").read_text(encoding="utf-8"))
+            manifest = yaml.safe_load((manifest_path(memoirs_dir)).read_text(encoding="utf-8"))
             places_index = manifest["places_index"]
 
             self.assertIn("佛罗里达大学·通勤停车场", registry["places"])
@@ -193,7 +197,7 @@ class BuildMemoirApiTests(unittest.TestCase):
             build_memoir_api.build_api()
 
             registry = yaml.safe_load((memoirs_dir / "entities.yaml").read_text(encoding="utf-8"))
-            manifest = yaml.safe_load((public_dir / "memoirs.manifest.json").read_text(encoding="utf-8"))
+            manifest = yaml.safe_load((manifest_path(memoirs_dir)).read_text(encoding="utf-8"))
 
             self.assertIn("佛罗里达大学·通勤停车场", manifest["places_index"])
             self.assertNotIn("UF／Commuter Lot", manifest["places_index"])
@@ -237,7 +241,7 @@ class BuildMemoirApiTests(unittest.TestCase):
             build_memoir_api.build_api()
 
             registry = yaml.safe_load((memoirs_dir / "entities.yaml").read_text(encoding="utf-8"))
-            manifest = yaml.safe_load((public_dir / "memoirs.manifest.json").read_text(encoding="utf-8"))
+            manifest = yaml.safe_load((manifest_path(memoirs_dir)).read_text(encoding="utf-8"))
             report = json.loads((memoirs_dir / ".entity_resolution_report.json").read_text(encoding="utf-8"))
 
             self.assertNotIn("library", registry["places"])
@@ -245,7 +249,7 @@ class BuildMemoirApiTests(unittest.TestCase):
             self.assertEqual(report["ambiguous_places"][0]["value"], "library")
             self.assertEqual(report["ambiguous_places"][0]["candidates"], ["A大学·图书馆", "B大学·图书馆"])
 
-    def test_build_api_rewrites_chapter_asset_paths_and_copies_files_to_public_assets(self):
+    def test_build_api_embeds_chapter_and_rewrites_asset_paths_to_media_route(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
             memoirs_dir, periods_dir, raw_notes_dir, public_dir = self.configure_workspace(root)
@@ -277,15 +281,16 @@ class BuildMemoirApiTests(unittest.TestCase):
 
             build_memoir_api.build_api()
 
-            manifest = yaml.safe_load((public_dir / "memoirs.manifest.json").read_text(encoding="utf-8"))
+            manifest = yaml.safe_load((manifest_path(memoirs_dir)).read_text(encoding="utf-8"))
             chapter = manifest["memoirs"]["US_PhD"]["chapters"][0]
-            chapter_markdown = (public_dir / "chapters" / "US_PhD" / "2024-09-lexington.md").read_text(encoding="utf-8")
 
-            copied_asset = public_dir / "assets" / "US_PhD" / "banner.jpg"
-            self.assertTrue(copied_asset.exists())
-            self.assertEqual(copied_asset.read_bytes(), b"chapter-image")
-            self.assertEqual(chapter["path"], "/chapters/US_PhD/2024-09-lexington.md")
-            self.assertIn("![Bird view](/assets/US_PhD/banner.jpg)", chapter_markdown)
+            self.assertEqual(chapter["filename"], "2024-09-lexington.md")
+            self.assertIn("![Bird view](/media/US_PhD/banner.jpg)", chapter["content"])
+            self.assertNotIn("path", chapter)
+            # Single source: nothing is copied into webapp/public.
+            self.assertFalse((public_dir / "chapters").exists())
+            self.assertFalse((public_dir / "assets").exists())
+            self.assertEqual((assets_dir / "banner.jpg").read_bytes(), b"chapter-image")
 
     def test_build_api_compacts_entity_indexes_and_graph_event_nodes(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -308,7 +313,7 @@ class BuildMemoirApiTests(unittest.TestCase):
 
             build_memoir_api.build_api()
 
-            manifest = json.loads((public_dir / "memoirs.manifest.json").read_text(encoding="utf-8"))
+            manifest = json.loads((manifest_path(memoirs_dir)).read_text(encoding="utf-8"))
             expected_ref = "US_PhD|2024-09|Test Event"
 
             self.assertEqual(manifest["people_index"]["Alice"], [expected_ref])
@@ -350,7 +355,7 @@ class BuildMemoirApiTests(unittest.TestCase):
 
             build_memoir_api.build_api()
 
-            manifest = json.loads((public_dir / "memoirs.manifest.json").read_text(encoding="utf-8"))
+            manifest = json.loads((manifest_path(memoirs_dir)).read_text(encoding="utf-8"))
             node_ids = {node["id"] for node in manifest["graph"]["nodes"]}
             links = {(link["source"], link["target"], link["type"]) for link in manifest["graph"]["links"]}
             event_ref = "US_PhD|2024-09|Test Event"
@@ -391,7 +396,7 @@ class BuildMemoirApiTests(unittest.TestCase):
 
             build_memoir_api.build_api()
 
-            manifest = json.loads((public_dir / "memoirs.manifest.json").read_text(encoding="utf-8"))
+            manifest = json.loads((manifest_path(memoirs_dir)).read_text(encoding="utf-8"))
             event_ref = "US_PhD|2024-09|Test Event"
             node_ids = {node["id"] for node in manifest["graph"]["nodes"]}
             links = {(link["source"], link["target"], link["type"]) for link in manifest["graph"]["links"]}
@@ -437,7 +442,7 @@ class BuildMemoirApiTests(unittest.TestCase):
 
             build_memoir_api.build_api()
 
-            manifest = json.loads((public_dir / "memoirs.manifest.json").read_text(encoding="utf-8"))
+            manifest = json.loads((manifest_path(memoirs_dir)).read_text(encoding="utf-8"))
             event_ref = "US_PhD|2024-09|Test Event"
             node_ids = {node["id"] for node in manifest["graph"]["nodes"]}
             links = {(link["source"], link["target"], link["type"]) for link in manifest["graph"]["links"]}
@@ -486,7 +491,7 @@ class BuildMemoirApiTests(unittest.TestCase):
 
             build_memoir_api.build_api()
 
-            manifest = json.loads((public_dir / "memoirs.manifest.json").read_text(encoding="utf-8"))
+            manifest = json.loads((manifest_path(memoirs_dir)).read_text(encoding="utf-8"))
             event_ref = "US_PhD|2024-09|Test Event"
             links = {(link["source"], link["target"], link["type"]) for link in manifest["graph"]["links"]}
 
@@ -529,7 +534,7 @@ class BuildMemoirApiTests(unittest.TestCase):
 
             build_memoir_api.build_api()
 
-            manifest = json.loads((public_dir / "memoirs.manifest.json").read_text(encoding="utf-8"))
+            manifest = json.loads((manifest_path(memoirs_dir)).read_text(encoding="utf-8"))
             event_ref = "US_PhD|2024-09|Test Event"
             links = {(link["source"], link["target"], link["type"]) for link in manifest["graph"]["links"]}
 
@@ -560,7 +565,7 @@ class BuildMemoirApiTests(unittest.TestCase):
             (raw_notes_dir / "malformed.md").write_text(textwrap.dedent("""\
                 ---
                 date: "2024-10"
-                people: "Alice"
+                people: "Alice, Bob"
                 places:
                   name: "Lexington Crossing"
                 ---
@@ -570,13 +575,43 @@ class BuildMemoirApiTests(unittest.TestCase):
             build_memoir_api.build_api()
 
             report = json.loads((memoirs_dir / ".entity_resolution_report.json").read_text(encoding="utf-8"))
-            manifest = json.loads((public_dir / "memoirs.manifest.json").read_text(encoding="utf-8"))
+            manifest = json.loads((manifest_path(memoirs_dir)).read_text(encoding="utf-8"))
             node_ids = {node["id"] for node in manifest["graph"]["nodes"]}
 
             self.assertEqual(report["missing_raw_notes"][0]["file"], "raw_notes/missing.md")
-            self.assertEqual(report["invalid_entity_fields"][0]["field"], "people")
-            self.assertEqual(report["invalid_entity_fields"][1]["field"], "places")
-            self.assertNotIn("person:A", node_ids)
+            self.assertEqual(report["coerced_entity_fields"][0]["field"], "people")
+            self.assertEqual(report["coerced_entity_fields"][0]["coerced"], ["Alice", "Bob"])
+            self.assertEqual(report["invalid_entity_fields"][0]["field"], "places")
+            self.assertIn("person:Alice", node_ids)
+            self.assertIn("person:Bob", node_ids)
+
+    def test_build_api_refuses_malformed_timeline_and_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            memoirs_dir, periods_dir, _, public_dir = self.configure_workspace(root)
+            (memoirs_dir / "entities.yaml").write_text("people: {}\nplaces: {}\n", encoding="utf-8")
+            (periods_dir / "timeline.yaml").write_text(
+                'period: US_PhD\nentries:\n  - id: "broken"\n    event: "unterminated\n',
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(SystemExit) as context:
+                build_memoir_api.build_api()
+
+            self.assertEqual(context.exception.code, 1)
+            self.assertFalse((manifest_path(memoirs_dir)).exists())
+
+    def test_build_api_refuses_malformed_entity_registry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            memoirs_dir, _, _, public_dir = self.configure_workspace(root)
+            (memoirs_dir / "entities.yaml").write_text("people: [unclosed\n", encoding="utf-8")
+
+            with self.assertRaises(SystemExit) as context:
+                build_memoir_api.build_api()
+
+            self.assertEqual(context.exception.code, 1)
+            self.assertFalse((manifest_path(memoirs_dir)).exists())
 
     def test_build_api_prefers_stable_timeline_id_for_event_ref(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -602,7 +637,7 @@ class BuildMemoirApiTests(unittest.TestCase):
 
             build_memoir_api.build_api()
 
-            manifest = json.loads((public_dir / "memoirs.manifest.json").read_text(encoding="utf-8"))
+            manifest = json.loads((manifest_path(memoirs_dir)).read_text(encoding="utf-8"))
             event_ref = "US_PhD|walmart_visit"
             self.assertEqual(manifest["places_index"]["Lexington Crossing"], [event_ref])
             self.assertIn(
@@ -634,7 +669,7 @@ class BuildMemoirApiTests(unittest.TestCase):
 
             build_memoir_api.build_api()
 
-            manifest = json.loads((public_dir / "memoirs.manifest.json").read_text(encoding="utf-8"))
+            manifest = json.loads((manifest_path(memoirs_dir)).read_text(encoding="utf-8"))
             entry = manifest["memoirs"]["US_PhD"]["timeline"]["entries"][0]
 
             self.assertEqual(entry["date"], "2024-Q3")
@@ -667,7 +702,7 @@ class BuildMemoirApiTests(unittest.TestCase):
 
             build_memoir_api.build_api()
 
-            manifest = json.loads((public_dir / "memoirs.manifest.json").read_text(encoding="utf-8"))
+            manifest = json.loads((manifest_path(memoirs_dir)).read_text(encoding="utf-8"))
             report = json.loads((memoirs_dir / ".time_resolution_report.json").read_text(encoding="utf-8"))
             entry = manifest["memoirs"]["US_PhD"]["timeline"]["entries"][0]
 
@@ -675,6 +710,148 @@ class BuildMemoirApiTests(unittest.TestCase):
             self.assertEqual(report["unresolved_times"][0]["status"], "ambiguous")
             self.assertEqual(report["unresolved_times"][0]["value"], "9月")
             self.assertEqual(report["unresolved_times"][0]["event_ref"], "US_PhD|9月|Bare Month")
+
+    def test_build_api_emits_schema_metadata_and_issues(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            memoirs_dir, periods_dir, raw_notes_dir, _ = self.configure_workspace(root)
+            (memoirs_dir / "entities.yaml").write_text("people: {}\nplaces: {}\n", encoding="utf-8")
+            self.write_fixture(
+                periods_dir,
+                raw_notes_dir,
+                textwrap.dedent("""\
+                    ---
+                    date: "2024-09"
+                    people: []
+                    places: []
+                    ---
+                    body
+                """),
+            )
+
+            build_memoir_api.build_api()
+
+            manifest = json.loads((manifest_path(memoirs_dir)).read_text(encoding="utf-8"))
+            self.assertEqual(manifest["schema_version"], 2)
+            self.assertIn("tool_version", manifest)
+            self.assertIn("generated_at", manifest)
+            self.assertIn("issues", manifest)
+            self.assertEqual(
+                set(manifest["issues"].keys()),
+                {"graph", "time", "entities", "chapter_assets"},
+            )
+
+    def test_build_api_connects_events_to_period_hubs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            memoirs_dir, periods_dir, raw_notes_dir, _ = self.configure_workspace(root)
+            (memoirs_dir / "entities.yaml").write_text("people: {}\nplaces: {}\n", encoding="utf-8")
+            self.write_fixture(
+                periods_dir,
+                raw_notes_dir,
+                textwrap.dedent("""\
+                    ---
+                    date: "2024-09"
+                    people: []
+                    places: []
+                    ---
+                    body
+                """),
+            )
+
+            build_memoir_api.build_api()
+
+            manifest = json.loads((manifest_path(memoirs_dir)).read_text(encoding="utf-8"))
+            node_ids = {node["id"]: node for node in manifest["graph"]["nodes"]}
+
+            self.assertIn("period:US_PhD", node_ids)
+            self.assertEqual(node_ids["period:US_PhD"]["group"], 1)
+            belongs_to = [
+                link for link in manifest["graph"]["links"] if link["type"] == "belongs_to"
+            ]
+            self.assertEqual(len(belongs_to), 1)
+            self.assertEqual(belongs_to[0]["target"], "period:US_PhD")
+
+    def test_build_api_infers_parent_for_fqn_place_missing_parent_field(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            memoirs_dir, periods_dir, raw_notes_dir, _ = self.configure_workspace(root)
+            (memoirs_dir / "entities.yaml").write_text(textwrap.dedent("""\
+                people: {}
+                places:
+                  甲城·图书馆:
+                    aliases: [city library]
+            """), encoding="utf-8")
+            self.write_fixture(
+                periods_dir,
+                raw_notes_dir,
+                textwrap.dedent("""\
+                    ---
+                    date: "2024-09"
+                    people: []
+                    places: ["甲城·图书馆"]
+                    ---
+                    body
+                """),
+            )
+
+            build_memoir_api.build_api()
+
+            manifest = json.loads((manifest_path(memoirs_dir)).read_text(encoding="utf-8"))
+            self.assertEqual(manifest["places_meta"]["甲城·图书馆"]["parent"], "甲城")
+            contains = [
+                link
+                for link in manifest["graph"]["links"]
+                if link["type"] == "contains"
+                and link["source"] == "place:甲城"
+                and link["target"] == "place:甲城·图书馆"
+            ]
+            self.assertEqual(len(contains), 1)
+            self.assertEqual(
+                manifest["issues"]["graph"]["missing_parents"][0]["inferred_parent"], "甲城"
+            )
+
+    def test_build_api_refuses_duplicate_event_refs_unless_forced(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            memoirs_dir, periods_dir, raw_notes_dir, _ = self.configure_workspace(root)
+            (memoirs_dir / "entities.yaml").write_text("people: {}\nplaces: {}\n", encoding="utf-8")
+            (periods_dir / "timeline.yaml").write_text(
+                textwrap.dedent("""\
+                    period: US_PhD
+                    entries:
+                      - id: same_id
+                        date: "2024-09"
+                        event: "First"
+                        summary: "a"
+                        related_files: ["raw_notes/test.md"]
+                      - id: same_id
+                        date: "2024-10"
+                        event: "Second"
+                        summary: "b"
+                        related_files: ["raw_notes/test.md"]
+                """),
+                encoding="utf-8",
+            )
+            (raw_notes_dir / "test.md").write_text(
+                "---\npeople: []\nplaces: []\n---\nbody\n", encoding="utf-8"
+            )
+
+            with self.assertRaises(SystemExit) as context:
+                build_memoir_api.build_api()
+            self.assertEqual(context.exception.code, 1)
+            self.assertFalse(manifest_path(memoirs_dir).exists())
+
+            build_memoir_api.build_api(force=True)
+
+            manifest = json.loads((manifest_path(memoirs_dir)).read_text(encoding="utf-8"))
+            event_nodes = [
+                node for node in manifest["graph"]["nodes"] if node.get("group") == 2
+            ]
+            self.assertEqual(len(event_nodes), 1)
+            self.assertEqual(
+                manifest["issues"]["graph"]["duplicate_event_refs"], ["US_PhD|same_id"]
+            )
 
 
 if __name__ == "__main__":

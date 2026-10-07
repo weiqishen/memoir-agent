@@ -208,6 +208,23 @@ class WorkflowGuardTests(unittest.TestCase):
 
             self.assertEqual(reasons, [])
 
+    def test_malformed_timeline_does_not_crash_guard(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            _, periods_dir = self.configure_workspace(root)
+            period_dir = periods_dir / "US_PhD"
+            (period_dir / "raw_notes").mkdir(parents=True)
+            (period_dir / "timeline.yaml").write_text(
+                'period: US_PhD\nentries:\n  - id: "broken\n', encoding="utf-8"
+            )
+
+            # The guard must degrade gracefully; build_memoir_api is the layer
+            # that fails loudly on malformed YAML.
+            reasons = workflow_guard.evaluate("build", None)
+            self.assertIsInstance(reasons, list)
+            reasons = workflow_guard.evaluate("memoir-build", "US_PhD")
+            self.assertIsInstance(reasons, list)
+
     def test_force_bypass_writes_audit_log(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)

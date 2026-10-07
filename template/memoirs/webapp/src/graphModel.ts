@@ -1,7 +1,7 @@
 import type { GraphLink, GraphNode } from './types';
 
 const EVENT_PREFIX = 'event:';
-const EVENT_LINK_TYPES = new Set(['occurred_at', 'mentions_person']);
+const EVENT_LINK_TYPES = new Set(['occurred_at', 'mentions_person', 'belongs_to']);
 const CONTAINS_LINK_TYPE = 'contains';
 
 function graphNodeId(value: string | GraphNode): string {
@@ -23,11 +23,14 @@ export function getConnectedEventRefs(tagNodeId: string, links: GraphLink[]): st
   const eventRefs: string[] = [];
   const connectedEntityIds = new Set([tagNodeId]);
   let changed = true;
+  let guard = 0;
+  const maxIterations = links.length + 1;
 
   // Place nodes use directed contains links, so parent place clicks should
   // include events attached to any descendant place.
-  while (changed) {
+  while (changed && guard < maxIterations) {
     changed = false;
+    guard += 1;
     links.forEach(link => {
       if (link.type !== CONTAINS_LINK_TYPE) return;
       const sourceId = graphNodeId(link.source);
@@ -55,4 +58,33 @@ export function getConnectedEventRefs(tagNodeId: string, links: GraphLink[]): st
   });
 
   return eventRefs;
+}
+
+/**
+ * Defensive cleanup for graph payloads: drop dangling links, dedupe nodes and
+ * links, and normalize object endpoints back to ids before rendering.
+ */
+export function sanitizeGraph(graph: { nodes: GraphNode[]; links: GraphLink[] }) {
+  const nodes: GraphNode[] = [];
+  const nodeIds = new Set<string>();
+  for (const node of graph.nodes || []) {
+    if (!node || typeof node.id !== 'string' || !node.id || nodeIds.has(node.id)) continue;
+    nodeIds.add(node.id);
+    nodes.push(node);
+  }
+
+  const links: GraphLink[] = [];
+  const seenLinks = new Set<string>();
+  for (const link of graph.links || []) {
+    if (!link) continue;
+    const source = graphNodeId(link.source);
+    const target = graphNodeId(link.target);
+    if (!source || !target || !nodeIds.has(source) || !nodeIds.has(target)) continue;
+    const key = `${source}\u0000${target}\u0000${link.type ?? ''}`;
+    if (seenLinks.has(key)) continue;
+    seenLinks.add(key);
+    links.push({ ...link, source, target });
+  }
+
+  return { nodes, links };
 }

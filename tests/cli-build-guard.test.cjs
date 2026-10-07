@@ -33,10 +33,10 @@ function writeMinimalBuildScript(targetPath) {
       'import json',
       'import os',
       '',
-      'public_dir = os.path.join(os.getcwd(), "memoirs", "webapp", "public")',
-      'os.makedirs(public_dir, exist_ok=True)',
-      'payload = {"memoirs": {}, "graph": {"nodes": [], "links": []}, "people_index": {}, "places_index": {}, "places_meta": {}}',
-      'with open(os.path.join(public_dir, "memoirs.manifest.json"), "w", encoding="utf-8") as f:',
+      'cache_dir = os.path.join(os.getcwd(), "memoirs", ".cache")',
+      'os.makedirs(cache_dir, exist_ok=True)',
+      'payload = {"schema_version": 2, "memoirs": {}, "graph": {"nodes": [], "links": []}, "people_index": {}, "places_index": {}, "places_meta": {}}',
+      'with open(os.path.join(cache_dir, "memoirs.manifest.json"), "w", encoding="utf-8") as f:',
       '    json.dump(payload, f, ensure_ascii=False, indent=2)',
       'print("compiled")',
       '',
@@ -83,8 +83,8 @@ test('memoir build is blocked by workflow guard and memoir build --force bypasse
     assert.equal(fs.existsSync(auditLogPath), true);
     assert.match(fs.readFileSync(auditLogPath, 'utf8'), /"action":\s*"build"/);
 
-    const distManifestPath = path.join(tempDir, 'memoirs', 'webapp', 'dist', 'memoirs.manifest.json');
-    assert.equal(fs.existsSync(distManifestPath), true);
+    const manifestPath = path.join(tempDir, 'memoirs', '.cache', 'memoirs.manifest.json');
+    assert.equal(fs.existsSync(manifestPath), true);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
